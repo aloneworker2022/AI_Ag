@@ -1,0 +1,28 @@
+# 本地 AI 伴侶 — 設定檔
+# 全部都是本地服務，沒有任何雲端 / 外部 API。
+
+companion:
+  name: 小夜                       # 伴侶名字（顯示在對話框與立繪）
+
+ollama:
+  base_url: http://127.0.0.1:11434  # Ollama 服務位址
+  model: llama3.1                   # 改成你 `ollama list` 裡有的模型
+  # 記憶抽取用的小模型（可與上面相同；想省資源可換更小的）
+  extract_model: llama3.1
+
+comfyui:
+  base_url: http://127.0.0.1:8188   # 既有 ComfyUI 服務位址
+  workflow: comfy_workflow.json     # workflow 範本（可換成自己匯出的）
+  checkpoint: ""                    # 留空 = 用 workflow 範本內預設的 checkpoint
+
+dream:
+  # 睡覺時段（24 小時制）。落在這區間內會自動進入睡眠並做夢。
+  # 跨午夜也支援，例如 23:00 -> 07:00。
+  sleep_start: "23:00"
+  sleep_end: "07:00"
+  check_interval_minutes: 5         # 排程多久檢查一次
+  max_dreams_per_night: 8           # 一個睡眠時段最多畫幾張，避免一直跑
+
+memory:
+  history_turns: 12                 # 短期記憶保留最近幾輪對話
+  auto_extract: true                # 每輪對話後自動抽取長期記憶

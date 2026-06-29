@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>本地 AI 伴侶</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 背景場景圖 -->
+  <div id="scene" class="scene"></div>
+
+  <!-- 睡眠/做夢狀態提示 -->
+  <div id="status-badge" class="status-badge hidden"></div>
+
+  <!-- 主舞台：對話框 + 立繪 -->
+  <main class="stage">
+    <div id="bubble" class="bubble hidden">
+      <span id="bubble-name" class="bubble-name"></span>
+      <p id="bubble-text"></p>
+    </div>
+    <img id="portrait" class="portrait" alt="立繪" src="">
+  </main>
+
+  <!-- 下方輸入列 -->
+  <form id="input-bar" class="input-bar">
+    <button type="button" id="btn-panel" class="icon-btn" title="記憶/設定">☰</button>
+    <input id="msg" type="text" placeholder="說點什麼…" autocomplete="off">
+    <button type="submit" id="btn-send" class="send-btn">送出</button>
+  </form>
+
+  <!-- 側邊面板：記憶 / skill / 夢境畫廊 -->
+  <aside id="panel" class="panel hidden">
+    <div class="panel-tabs">
+      <button data-tab="memory" class="tab active">記憶</button>
+      <button data-tab="dreams" class="tab">夢境</button>
+      <button data-tab="skills" class="tab">Skills</button>
+    </div>
+    <div class="panel-body">
+      <section id="tab-memory" class="tab-pane active">
+        <div id="memory-list" class="list"></div>
+        <div id="memory-editor" class="editor hidden">
+          <div class="editor-path" id="editor-path"></div>
+          <textarea id="editor-text"></textarea>
+          <div class="editor-actions">
+            <button id="editor-save">儲存</button>
+            <button id="editor-delete" class="danger">刪除</button>
+            <button id="editor-close">關閉</button>
+          </div>
+        </div>
+      </section>
+      <section id="tab-dreams" class="tab-pane">
+        <div id="dreams-grid" class="grid"></div>
+      </section>
+      <section id="tab-skills" class="tab-pane">
+        <div id="skills-list" class="list"></div>
+      </section>
+    </div>
+    <button id="panel-close" class="panel-close">×</button>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>

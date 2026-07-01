@@ -19,6 +19,10 @@ form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const message = msgInput.value.trim();
   if (!message) return;
+  await sendMessage(message);
+});
+
+async function sendMessage(message) {
   msgInput.value = "";
   sendBtn.disabled = true;
   showBubble("…", "（思考中）");
@@ -37,16 +41,43 @@ form.addEventListener("submit", async (e) => {
       scene.style.backgroundImage = `url(${data.scene_image})`;
     }
   } catch (err) {
-    showBubble("（連線出錯：" + err.message + "）", "系統");
+    // 手機鎖螢幕/切背景常常會讓等待中的 fetch 被砍斷（Failed to fetch），
+    // 但後端很可能其實已經處理完了。先跟伺服器核對一次再判定真的失敗。
+    const recovered = await tryRecoverReply(message);
+    if (!recovered) {
+      showBubble("（連線出錯：" + err.message + "）點這裡重新送出", "系統");
+      bubbleText.onclick = () => sendMessage(message);
+      bubbleText.classList.add("clickable");
+    }
   } finally {
     sendBtn.disabled = false;
     msgInput.focus();
   }
-});
+}
+
+async function tryRecoverReply(sentMessage) {
+  try {
+    const res = await fetch("/chat/recent?limit=4");
+    if (!res.ok) return false;
+    const history = await res.json();
+    for (let i = 0; i < history.length - 1; i++) {
+      if (history[i].role === "user" && history[i].content === sentMessage
+          && history[i + 1].role === "assistant") {
+        showBubble(history[i + 1].content, companionName);
+        return true;
+      }
+    }
+  } catch (_) {
+    // 連核對都連不上，維持失敗狀態
+  }
+  return false;
+}
 
 function showBubble(text, name) {
   bubbleText.textContent = text;
   bubbleName.textContent = name;
+  bubbleText.onclick = null;
+  bubbleText.classList.remove("clickable");
   bubble.classList.remove("hidden");
 }
 

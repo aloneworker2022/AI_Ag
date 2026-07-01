@@ -39,6 +39,8 @@ html, body {
 }
 
 .portrait {
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: 72vh;
   max-width: 90vw;
   object-fit: contain;
@@ -47,11 +49,14 @@ html, body {
 }
 .portrait[src=""] { opacity: 0; }
 
-/* 對話框（人物頭上） */
+/* 對話框（人物頭上）：長回覆時限制高度、內部捲動，避免把上邊界推出畫面被切掉 */
 .bubble {
   position: relative;
+  flex: 0 0 auto;
   max-width: 680px;
   width: 88%;
+  max-height: 40vh;
+  overflow-y: auto;
   margin-bottom: 18px;
   background: rgba(34, 29, 51, 0.92);
   border: 1px solid var(--accent);

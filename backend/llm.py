@@ -53,3 +53,17 @@ async def chat_json(messages: list[dict[str, str]], model: str | None = None) ->
         return json.loads(content)
     except (httpx.HTTPError, json.JSONDecodeError, KeyError):
         return None
+
+
+async def check_connection() -> tuple[bool, list[str]]:
+    """測試 Ollama 連線，回傳 (是否可連, 該主機已安裝的模型清單)。"""
+    cfg = _ollama_cfg()
+    url = f"{cfg['base_url'].rstrip('/')}/api/tags"
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+        return True, [m["name"] for m in data.get("models", [])]
+    except (httpx.HTTPError, KeyError, json.JSONDecodeError):
+        return False, []

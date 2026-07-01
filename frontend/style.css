@@ -189,4 +189,65 @@ html, body {
 .grid img { width: 100%; border-radius: 10px; display: block; }
 .grid figcaption { font-size: 13px; margin-top: 4px; opacity: 0.8; }
 
+/* 設定頁面 */
+.settings-group {
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.settings-group h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-group label {
+  display: block;
+  font-size: 13px;
+  opacity: 0.8;
+  margin-bottom: 10px;
+}
+.settings-group input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.3);
+  color: var(--text);
+  font-size: 14px;
+}
+.settings-group input:focus { outline: none; border-color: var(--accent); }
+.hint { font-size: 12px; opacity: 0.6; margin: 6px 0 0; }
+
+.test-btn, .save-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+}
+.save-btn {
+  width: 100%;
+  background: var(--accent);
+  color: white;
+  padding: 12px;
+  font-size: 15px;
+  margin-top: 4px;
+}
+
+.conn-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.25);
+}
+.conn-dot.testing { background: #d8b34a; }
+.conn-dot.ok { background: #4ad87c; }
+.conn-dot.fail { background: #d84a4a; }
+
 .hidden { display: none !important; }

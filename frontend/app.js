@@ -87,6 +87,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
     if (name === "memory") loadMemory();
     if (name === "dreams") loadDreams();
     if (name === "skills") loadSkills();
+    if (name === "settings") loadSettings();
   });
 });
 
@@ -171,3 +172,73 @@ fetch("/memory").then((r) => r.json()).then((items) => {
   const c = items.find((i) => i.path === "characters/companion.md");
   if (c) { companionName = c.name; }
 });
+
+// ---- 設定（Ollama / ComfyUI 連線，可能跑在別台機器）----
+async function loadSettings() {
+  const res = await fetch("/settings");
+  const cfg = await res.json();
+  $("#set-companion-name").value = cfg.companion?.name || "";
+  $("#set-ollama-url").value = cfg.ollama?.base_url || "";
+  $("#set-ollama-model").value = cfg.ollama?.model || "";
+  $("#set-ollama-extract").value = cfg.ollama?.extract_model || "";
+  $("#set-comfyui-url").value = cfg.comfyui?.base_url || "";
+  $("#set-comfyui-checkpoint").value = cfg.comfyui?.checkpoint || "";
+  $("#set-sleep-start").value = cfg.dream?.sleep_start || "";
+  $("#set-sleep-end").value = cfg.dream?.sleep_end || "";
+  $("#ollama-dot").className = "conn-dot";
+  $("#comfyui-dot").className = "conn-dot";
+  $("#settings-msg").textContent = "";
+}
+
+$("#settings-save").addEventListener("click", async () => {
+  const body = {
+    companion: { name: $("#set-companion-name").value.trim() },
+    ollama: {
+      base_url: $("#set-ollama-url").value.trim(),
+      model: $("#set-ollama-model").value.trim(),
+      extract_model: $("#set-ollama-extract").value.trim(),
+    },
+    comfyui: {
+      base_url: $("#set-comfyui-url").value.trim(),
+      checkpoint: $("#set-comfyui-checkpoint").value.trim(),
+    },
+    dream: {
+      sleep_start: $("#set-sleep-start").value.trim(),
+      sleep_end: $("#set-sleep-end").value.trim(),
+    },
+  };
+  const msg = $("#settings-msg");
+  try {
+    const res = await fetch("/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    msg.textContent = res.ok ? "已儲存" : "儲存失敗";
+  } catch (err) {
+    msg.textContent = "儲存失敗：" + err.message;
+  }
+});
+
+async function testConnection(service, dotId) {
+  const dot = $(dotId);
+  dot.className = "conn-dot testing";
+  try {
+    const res = await fetch(`/settings/test/${service}`);
+    const data = await res.json();
+    dot.className = "conn-dot " + (data.ok ? "ok" : "fail");
+    if (service === "ollama" && data.ok && Array.isArray(data.models)) {
+      const dl = $("#ollama-models");
+      dl.innerHTML = "";
+      data.models.forEach((m) => {
+        const opt = document.createElement("option");
+        opt.value = m;
+        dl.appendChild(opt);
+      });
+    }
+  } catch (_) {
+    dot.className = "conn-dot fail";
+  }
+}
+$("#btn-test-ollama").addEventListener("click", () => testConnection("ollama", "#ollama-dot"));
+$("#btn-test-comfyui").addEventListener("click", () => testConnection("comfyui", "#comfyui-dot"));

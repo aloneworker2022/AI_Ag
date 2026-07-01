@@ -15,8 +15,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import dream, llm, memory, skills
-from .config import (DREAM_IMAGES_DIR, FRONTEND_DIR, ensure_dirs, get_config)
+from . import comfyui, dream, llm, memory, skills
+from .config import (DREAM_IMAGES_DIR, FRONTEND_DIR, ensure_dirs, get_config,
+                     update_config)
 
 scheduler = AsyncIOScheduler()
 
@@ -194,6 +195,61 @@ async def memory_delete(path: str):
     except ValueError:
         raise HTTPException(400, "非法路徑")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# 設定頁面（連線設定：Ollama / ComfyUI 可能跑在別台機器上）
+# ---------------------------------------------------------------------------
+class CompanionSettings(BaseModel):
+    name: str | None = None
+
+
+class OllamaSettings(BaseModel):
+    base_url: str | None = None
+    model: str | None = None
+    extract_model: str | None = None
+
+
+class ComfyUISettings(BaseModel):
+    base_url: str | None = None
+    checkpoint: str | None = None
+    workflow: str | None = None
+
+
+class DreamSettings(BaseModel):
+    sleep_start: str | None = None
+    sleep_end: str | None = None
+    check_interval_minutes: int | None = None
+    max_dreams_per_night: int | None = None
+
+
+class SettingsUpdate(BaseModel):
+    companion: CompanionSettings | None = None
+    ollama: OllamaSettings | None = None
+    comfyui: ComfyUISettings | None = None
+    dream: DreamSettings | None = None
+
+
+@app.get("/settings")
+async def settings_get():
+    return get_config()
+
+
+@app.put("/settings")
+async def settings_put(body: SettingsUpdate):
+    updates = body.model_dump(exclude_none=True, exclude_unset=True)
+    return update_config(updates)
+
+
+@app.get("/settings/test/ollama")
+async def settings_test_ollama():
+    ok, models = await llm.check_connection()
+    return {"ok": ok, "models": models}
+
+
+@app.get("/settings/test/comfyui")
+async def settings_test_comfyui():
+    return {"ok": await comfyui.is_alive()}
 
 
 # ---------------------------------------------------------------------------

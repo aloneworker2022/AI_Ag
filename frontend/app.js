@@ -14,6 +14,11 @@ const statusBadge = $("#status-badge");
 
 let companionName = "伴侶";
 
+// PWA：註冊 service worker，加到主畫面才會用 standalone 模式打開
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
 // ---- 聊天 ----
 form.addEventListener("submit", async (e) => {
   e.preventDefault();

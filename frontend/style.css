@@ -30,7 +30,7 @@ html, body {
 /* 舞台 */
 .stage {
   position: fixed;
-  inset: 0 0 110px 0;
+  inset: 0 0 calc(110px + env(safe-area-inset-bottom)) 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -82,7 +82,7 @@ html, body {
 /* 狀態提示 */
 .status-badge {
   position: fixed;
-  top: 16px;
+  top: calc(16px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.55);
@@ -92,15 +92,17 @@ html, body {
   z-index: 5;
 }
 
-/* 輸入列 */
+/* 輸入列（加到主畫面用 standalone 模式時，底部留出 Home Indicator 空間） */
 .input-bar {
   position: fixed;
   left: 0; right: 0; bottom: 0;
-  height: 88px;
+  height: calc(88px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 18px;
+  padding-left: 18px;
+  padding-right: 18px;
   background: rgba(20, 16, 31, 0.85);
   border-top: 1px solid rgba(184, 107, 143, 0.3);
   backdrop-filter: blur(6px);

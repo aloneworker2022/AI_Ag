@@ -101,10 +101,27 @@ async def _wait_for_image(client: httpx.AsyncClient, base: str, prompt_id: str,
     return None
 
 
-async def is_alive() -> bool:
+async def is_alive(base_url: str | None = None) -> bool:
+    base = (base_url or _base()).rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.get(f"{_base()}/system_stats")
+            r = await client.get(f"{base}/system_stats")
             return r.status_code == 200
     except httpx.HTTPError:
         return False
+
+
+async def list_checkpoints(base_url: str | None = None) -> list[str]:
+    """測試連線用：回傳該 ComfyUI 主機上已安裝的 checkpoint 清單。
+
+    base_url 可傳入設定頁上「還沒存檔」的網址；不傳則用 config.yaml 目前存的值。
+    """
+    base = (base_url or _base()).rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{base}/object_info/CheckpointLoaderSimple")
+            r.raise_for_status()
+            data = r.json()
+        return data["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0]
+    except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError):
+        return []

@@ -1,0 +1,14 @@
+{
+  "name": "本地 AI 伴侶",
+  "short_name": "AI伴侶",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a1626",
+  "theme_color": "#1a1626",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

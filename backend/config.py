@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import yaml
+from ruamel.yaml import YAML
 
 # 專案根目錄（config.py 在 backend/ 底下，往上一層就是根）
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,11 +19,32 @@ HISTORY_FILE = MEMORY_DIR / "history.json"
 DREAM_INDEX_FILE = DREAMS_DIR / "index.json"
 CONFIG_FILE = ROOT / "config.yaml"
 
+_yaml = YAML()
+_yaml.preserve_quotes = True
+
 
 @lru_cache(maxsize=1)
 def get_config() -> dict[str, Any]:
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        return _yaml.load(f)
+
+
+def update_config(updates: dict[str, Any]) -> dict[str, Any]:
+    """把 updates 淺層合併進 config.yaml 對應的區塊，保留原本的註解與排版。
+
+    透過設定頁面（/settings）寫入，取代手動編輯 config.yaml。
+    """
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        current = _yaml.load(f)
+    for section, values in updates.items():
+        if isinstance(values, dict) and isinstance(current.get(section), dict):
+            current[section].update(values)
+        else:
+            current[section] = values
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        _yaml.dump(current, f)
+    get_config.cache_clear()
+    return get_config()
 
 
 def ensure_dirs() -> None:

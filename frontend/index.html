@@ -2,9 +2,18 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>本地 AI 伴侶</title>
   <link rel="stylesheet" href="style.css">
+
+  <!-- PWA：加到主畫面後以 standalone 模式打開，隱藏網址列與瀏覽器操作列 -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1a1626">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AI伴侶">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
 </head>
 <body>
   <!-- 背景場景圖 -->
@@ -19,7 +28,7 @@
       <span id="bubble-name" class="bubble-name"></span>
       <p id="bubble-text"></p>
     </div>
-    <img id="portrait" class="portrait" alt="立繪" src="">
+    <img id="portrait" class="portrait" alt="立繪" src="assets/companion.png">
   </main>
 
   <!-- 下方輸入列 -->
@@ -35,6 +44,7 @@
       <button data-tab="memory" class="tab active">記憶</button>
       <button data-tab="dreams" class="tab">夢境</button>
       <button data-tab="skills" class="tab">Skills</button>
+      <button data-tab="settings" class="tab">設定</button>
     </div>
     <div class="panel-body">
       <section id="tab-memory" class="tab-pane active">
@@ -54,6 +64,59 @@
       </section>
       <section id="tab-skills" class="tab-pane">
         <div id="skills-list" class="list"></div>
+      </section>
+      <section id="tab-settings" class="tab-pane">
+        <div class="settings-group">
+          <h3>伴侶</h3>
+          <label>名字
+            <input id="set-companion-name" type="text" placeholder="小夜">
+          </label>
+        </div>
+
+        <div class="settings-group">
+          <h3>Ollama <span id="ollama-dot" class="conn-dot"></span></h3>
+          <label>Base URL
+            <input id="set-ollama-url" type="text" placeholder="http://100.x.x.x:11434">
+          </label>
+          <button type="button" id="btn-test-ollama" class="test-btn">連線並取得模型清單</button>
+          <label>對話模型
+            <select id="set-ollama-model" disabled>
+              <option value="">請先連線取得模型清單</option>
+            </select>
+          </label>
+          <label>記憶抽取模型
+            <select id="set-ollama-extract" disabled>
+              <option value="">請先連線取得模型清單</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="settings-group">
+          <h3>ComfyUI <span id="comfyui-dot" class="conn-dot"></span></h3>
+          <label>Base URL
+            <input id="set-comfyui-url" type="text" placeholder="http://100.x.x.x:8188">
+          </label>
+          <button type="button" id="btn-test-comfyui" class="test-btn">連線並取得 Checkpoint 清單</button>
+          <label>Checkpoint
+            <select id="set-comfyui-checkpoint" disabled>
+              <option value="">請先連線取得 Checkpoint 清單</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="settings-group">
+          <h3>做夢時段</h3>
+          <label>開始
+            <input id="set-sleep-start" type="text" placeholder="23:00">
+          </label>
+          <label>結束
+            <input id="set-sleep-end" type="text" placeholder="07:00">
+          </label>
+          <p class="hint">排程間隔（幾分鐘檢查一次）變更需重啟伺服器才會套用。</p>
+        </div>
+
+        <button id="settings-save" class="save-btn">儲存設定</button>
+        <p id="settings-msg" class="hint"></p>
       </section>
     </div>
     <button id="panel-close" class="panel-close">×</button>

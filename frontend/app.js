@@ -14,11 +14,20 @@ const statusBadge = $("#status-badge");
 
 let companionName = "伴侶";
 
+// PWA：註冊 service worker，加到主畫面才會用 standalone 模式打開
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
 // ---- 聊天 ----
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const message = msgInput.value.trim();
   if (!message) return;
+  await sendMessage(message);
+});
+
+async function sendMessage(message) {
   msgInput.value = "";
   sendBtn.disabled = true;
   showBubble("…", "（思考中）");
@@ -37,16 +46,43 @@ form.addEventListener("submit", async (e) => {
       scene.style.backgroundImage = `url(${data.scene_image})`;
     }
   } catch (err) {
-    showBubble("（連線出錯：" + err.message + "）", "系統");
+    // 手機鎖螢幕/切背景常常會讓等待中的 fetch 被砍斷（Failed to fetch），
+    // 但後端很可能其實已經處理完了。先跟伺服器核對一次再判定真的失敗。
+    const recovered = await tryRecoverReply(message);
+    if (!recovered) {
+      showBubble("（連線出錯：" + err.message + "）點這裡重新送出", "系統");
+      bubbleText.onclick = () => sendMessage(message);
+      bubbleText.classList.add("clickable");
+    }
   } finally {
     sendBtn.disabled = false;
     msgInput.focus();
   }
-});
+}
+
+async function tryRecoverReply(sentMessage) {
+  try {
+    const res = await fetch("/chat/recent?limit=4");
+    if (!res.ok) return false;
+    const history = await res.json();
+    for (let i = 0; i < history.length - 1; i++) {
+      if (history[i].role === "user" && history[i].content === sentMessage
+          && history[i + 1].role === "assistant") {
+        showBubble(history[i + 1].content, companionName);
+        return true;
+      }
+    }
+  } catch (_) {
+    // 連核對都連不上，維持失敗狀態
+  }
+  return false;
+}
 
 function showBubble(text, name) {
   bubbleText.textContent = text;
   bubbleName.textContent = name;
+  bubbleText.onclick = null;
+  bubbleText.classList.remove("clickable");
   bubble.classList.remove("hidden");
 }
 
@@ -87,6 +123,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
     if (name === "memory") loadMemory();
     if (name === "dreams") loadDreams();
     if (name === "skills") loadSkills();
+    if (name === "settings") loadSettings();
   });
 });
 
@@ -170,4 +207,130 @@ async function loadSkills() {
 fetch("/memory").then((r) => r.json()).then((items) => {
   const c = items.find((i) => i.path === "characters/companion.md");
   if (c) { companionName = c.name; }
+});
+
+// ---- 設定（Ollama / ComfyUI 連線，可能跑在別台機器）----
+// 流程：填 Base URL → 按「連線」→ 從該台機器抓已安裝的模型/Checkpoint → 用下拉選單挑選。
+// 下拉選單在還沒連線成功前是 disabled，儲存時會沿用原本存檔的值，不會被清空。
+let savedOllamaModel = "";
+let savedOllamaExtract = "";
+let savedComfyCheckpoint = "";
+
+function resetModelSelect(sel, placeholder) {
+  const el = $(sel);
+  el.innerHTML = `<option value="">${placeholder}</option>`;
+  el.disabled = true;
+}
+
+function fillModelSelect(sel, options, current, emptyOption) {
+  const el = $(sel);
+  el.innerHTML = "";
+  if (emptyOption) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = emptyOption;
+    el.appendChild(opt);
+  }
+  if (options.length === 0 && !emptyOption) {
+    el.innerHTML = `<option value="">（沒有偵測到模型）</option>`;
+    el.disabled = true;
+    return;
+  }
+  options.forEach((name) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    el.appendChild(opt);
+  });
+  if (current && options.includes(current)) el.value = current;
+  el.disabled = false;
+}
+
+async function loadSettings() {
+  const res = await fetch("/settings");
+  const cfg = await res.json();
+  $("#set-companion-name").value = cfg.companion?.name || "";
+  $("#set-ollama-url").value = cfg.ollama?.base_url || "";
+  $("#set-comfyui-url").value = cfg.comfyui?.base_url || "";
+  $("#set-sleep-start").value = cfg.dream?.sleep_start || "";
+  $("#set-sleep-end").value = cfg.dream?.sleep_end || "";
+
+  savedOllamaModel = cfg.ollama?.model || "";
+  savedOllamaExtract = cfg.ollama?.extract_model || "";
+  savedComfyCheckpoint = cfg.comfyui?.checkpoint || "";
+
+  resetModelSelect("#set-ollama-model", "請先連線取得模型清單");
+  resetModelSelect("#set-ollama-extract", "請先連線取得模型清單");
+  resetModelSelect("#set-comfyui-checkpoint", "請先連線取得 Checkpoint 清單");
+
+  $("#ollama-dot").className = "conn-dot";
+  $("#comfyui-dot").className = "conn-dot";
+  $("#settings-msg").textContent = "";
+}
+
+$("#settings-save").addEventListener("click", async () => {
+  const ollamaModelSel = $("#set-ollama-model");
+  const ollamaExtractSel = $("#set-ollama-extract");
+  const comfyCkptSel = $("#set-comfyui-checkpoint");
+  const body = {
+    companion: { name: $("#set-companion-name").value.trim() },
+    ollama: {
+      base_url: $("#set-ollama-url").value.trim(),
+      model: ollamaModelSel.disabled ? savedOllamaModel : ollamaModelSel.value,
+      extract_model: ollamaExtractSel.disabled ? savedOllamaExtract : ollamaExtractSel.value,
+    },
+    comfyui: {
+      base_url: $("#set-comfyui-url").value.trim(),
+      checkpoint: comfyCkptSel.disabled ? savedComfyCheckpoint : comfyCkptSel.value,
+    },
+    dream: {
+      sleep_start: $("#set-sleep-start").value.trim(),
+      sleep_end: $("#set-sleep-end").value.trim(),
+    },
+  };
+  const msg = $("#settings-msg");
+  try {
+    const res = await fetch("/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    msg.textContent = res.ok ? "已儲存" : "儲存失敗";
+  } catch (err) {
+    msg.textContent = "儲存失敗：" + err.message;
+  }
+});
+
+$("#btn-test-ollama").addEventListener("click", async () => {
+  const dot = $("#ollama-dot");
+  const url = $("#set-ollama-url").value.trim();
+  dot.className = "conn-dot testing";
+  try {
+    const res = await fetch(`/settings/test/ollama?base_url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    dot.className = "conn-dot " + (data.ok ? "ok" : "fail");
+    if (data.ok && Array.isArray(data.models)) {
+      fillModelSelect("#set-ollama-model", data.models, savedOllamaModel);
+      fillModelSelect("#set-ollama-extract", data.models, savedOllamaExtract);
+    }
+  } catch (_) {
+    dot.className = "conn-dot fail";
+  }
+});
+
+$("#btn-test-comfyui").addEventListener("click", async () => {
+  const dot = $("#comfyui-dot");
+  const url = $("#set-comfyui-url").value.trim();
+  dot.className = "conn-dot testing";
+  try {
+    const res = await fetch(`/settings/test/comfyui?base_url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    dot.className = "conn-dot " + (data.ok ? "ok" : "fail");
+    if (data.ok && Array.isArray(data.checkpoints)) {
+      fillModelSelect("#set-comfyui-checkpoint", data.checkpoints, savedComfyCheckpoint,
+        "（留空，使用 workflow 範本預設）");
+    }
+  } catch (_) {
+    dot.className = "conn-dot fail";
+  }
 });

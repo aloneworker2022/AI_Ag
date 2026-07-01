@@ -6,6 +6,11 @@
 }
 
 * { box-sizing: border-box; }
+button, input {
+  font-family: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+}
 
 html, body {
   margin: 0;
@@ -30,7 +35,7 @@ html, body {
 /* 舞台 */
 .stage {
   position: fixed;
-  inset: 0 0 110px 0;
+  inset: 0 0 calc(96px + env(safe-area-inset-bottom)) 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -39,6 +44,8 @@ html, body {
 }
 
 .portrait {
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: 72vh;
   max-width: 90vw;
   object-fit: contain;
@@ -47,11 +54,14 @@ html, body {
 }
 .portrait[src=""] { opacity: 0; }
 
-/* 對話框（人物頭上） */
+/* 對話框（人物頭上）：長回覆時限制高度、內部捲動，避免把上邊界推出畫面被切掉 */
 .bubble {
   position: relative;
+  flex: 0 0 auto;
   max-width: 680px;
   width: 88%;
+  max-height: 40vh;
+  overflow-y: auto;
   margin-bottom: 18px;
   background: rgba(34, 29, 51, 0.92);
   border: 1px solid var(--accent);
@@ -77,11 +87,12 @@ html, body {
   margin-bottom: 6px;
 }
 .bubble p { margin: 0; line-height: 1.7; white-space: pre-wrap; }
+.bubble p.clickable { cursor: pointer; text-decoration: underline dotted; }
 
 /* 狀態提示 */
 .status-badge {
   position: fixed;
-  top: 16px;
+  top: calc(16px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.55);
@@ -91,43 +102,64 @@ html, body {
   z-index: 5;
 }
 
-/* 輸入列 */
+/* 輸入列：浮動圓角卡片（加到主畫面用 standalone 模式時，底部留出 Home Indicator 空間） */
 .input-bar {
   position: fixed;
-  left: 0; right: 0; bottom: 0;
-  height: 88px;
+  left: 12px; right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 18px;
-  background: rgba(20, 16, 31, 0.85);
-  border-top: 1px solid rgba(184, 107, 143, 0.3);
-  backdrop-filter: blur(6px);
+  gap: 8px;
+  padding: 8px;
+  background: var(--panel-bg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
   z-index: 4;
 }
 #msg {
-  flex: 1;
-  height: 48px;
-  padding: 0 18px;
-  border-radius: 24px;
-  border: 1px solid rgba(184, 107, 143, 0.4);
-  background: rgba(243, 238, 247, 0.06);
+  flex: 1 1 0;
+  min-width: 0;
+  height: 52px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: none;
+  background: transparent;
   color: var(--text);
   font-size: 16px;
   outline: none;
 }
-#msg:focus { border-color: var(--accent); }
-.send-btn, .icon-btn {
-  height: 48px;
+.icon-btn {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
-  border-radius: 24px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 18px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.icon-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.send-btn {
+  height: 52px;
+  flex: none;
+  border: none;
+  border-radius: 12px;
+  padding: 0 18px;
   background: var(--accent);
   color: white;
-  font-size: 16px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
-  padding: 0 22px;
+  transition: filter 0.15s ease;
 }
-.icon-btn { width: 48px; padding: 0; background: rgba(243,238,247,0.08); }
+.send-btn:hover:not(:disabled) { filter: brightness(1.1); }
 .send-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* 側邊面板 */
@@ -188,5 +220,66 @@ html, body {
 .grid figure { margin: 0; }
 .grid img { width: 100%; border-radius: 10px; display: block; }
 .grid figcaption { font-size: 13px; margin-top: 4px; opacity: 0.8; }
+
+/* 設定頁面 */
+.settings-group {
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.settings-group h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-group label {
+  display: block;
+  font-size: 13px;
+  opacity: 0.8;
+  margin-bottom: 10px;
+}
+.settings-group input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.3);
+  color: var(--text);
+  font-size: 14px;
+}
+.settings-group input:focus { outline: none; border-color: var(--accent); }
+.hint { font-size: 12px; opacity: 0.6; margin: 6px 0 0; }
+
+.test-btn, .save-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+}
+.save-btn {
+  width: 100%;
+  background: var(--accent);
+  color: white;
+  padding: 12px;
+  font-size: 15px;
+  margin-top: 4px;
+}
+
+.conn-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.25);
+}
+.conn-dot.testing { background: #d8b34a; }
+.conn-dot.ok { background: #4ad87c; }
+.conn-dot.fail { background: #d84a4a; }
 
 .hidden { display: none !important; }

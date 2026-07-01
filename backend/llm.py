@@ -55,10 +55,14 @@ async def chat_json(messages: list[dict[str, str]], model: str | None = None) ->
         return None
 
 
-async def check_connection() -> tuple[bool, list[str]]:
-    """測試 Ollama 連線，回傳 (是否可連, 該主機已安裝的模型清單)。"""
-    cfg = _ollama_cfg()
-    url = f"{cfg['base_url'].rstrip('/')}/api/tags"
+async def check_connection(base_url: str | None = None) -> tuple[bool, list[str]]:
+    """測試 Ollama 連線，回傳 (是否可連, 該主機已安裝的模型清單)。
+
+    base_url 可傳入設定頁上「還沒存檔」的網址，用來連線測試；
+    不傳則用 config.yaml 目前存的值。
+    """
+    base = (base_url or _ollama_cfg()["base_url"]).rstrip("/")
+    url = f"{base}/api/tags"
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.get(url)

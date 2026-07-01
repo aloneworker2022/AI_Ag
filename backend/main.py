@@ -242,14 +242,16 @@ async def settings_put(body: SettingsUpdate):
 
 
 @app.get("/settings/test/ollama")
-async def settings_test_ollama():
-    ok, models = await llm.check_connection()
+async def settings_test_ollama(base_url: str | None = None):
+    ok, models = await llm.check_connection(base_url)
     return {"ok": ok, "models": models}
 
 
 @app.get("/settings/test/comfyui")
-async def settings_test_comfyui():
-    return {"ok": await comfyui.is_alive()}
+async def settings_test_comfyui(base_url: str | None = None):
+    ok = await comfyui.is_alive(base_url)
+    checkpoints = await comfyui.list_checkpoints(base_url) if ok else []
+    return {"ok": ok, "checkpoints": checkpoints}
 
 
 # ---------------------------------------------------------------------------

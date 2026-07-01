@@ -69,14 +69,17 @@
           <label>Base URL
             <input id="set-ollama-url" type="text" placeholder="http://100.x.x.x:11434">
           </label>
+          <button type="button" id="btn-test-ollama" class="test-btn">連線並取得模型清單</button>
           <label>對話模型
-            <input id="set-ollama-model" type="text" list="ollama-models" placeholder="llama3.1">
-            <datalist id="ollama-models"></datalist>
+            <select id="set-ollama-model" disabled>
+              <option value="">請先連線取得模型清單</option>
+            </select>
           </label>
           <label>記憶抽取模型
-            <input id="set-ollama-extract" type="text" list="ollama-models" placeholder="可與對話模型相同">
+            <select id="set-ollama-extract" disabled>
+              <option value="">請先連線取得模型清單</option>
+            </select>
           </label>
-          <button type="button" id="btn-test-ollama" class="test-btn">測試連線</button>
         </div>
 
         <div class="settings-group">
@@ -84,10 +87,12 @@
           <label>Base URL
             <input id="set-comfyui-url" type="text" placeholder="http://100.x.x.x:8188">
           </label>
+          <button type="button" id="btn-test-comfyui" class="test-btn">連線並取得 Checkpoint 清單</button>
           <label>Checkpoint
-            <input id="set-comfyui-checkpoint" type="text" placeholder="留空 = 用 workflow 範本內預設">
+            <select id="set-comfyui-checkpoint" disabled>
+              <option value="">請先連線取得 Checkpoint 清單</option>
+            </select>
           </label>
-          <button type="button" id="btn-test-comfyui" class="test-btn">測試連線</button>
         </div>
 
         <div class="settings-group">

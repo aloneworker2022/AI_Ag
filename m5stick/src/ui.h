@@ -12,7 +12,8 @@ class Ui {
   // 狀態列：Wi-Fi 名稱、是否連上 Pi
   void setStatus(const String& wifiName, bool linkUp, bool force = false);
 
-  void showInfo(const String& title, const String& body);
+  // small = true 用小字（內容行數多時，例如設定模式的說明）
+  void showInfo(const String& title, const String& body, bool small = false);
   void showHome();
   void showRecording(uint32_t elapsedMs, int level);
   // said：使用者說的話（還沒辨識完可以是空字串）；status：例如「辨識中…」「思考中…」
@@ -45,6 +46,7 @@ class Ui {
   String status_;
   uint32_t recMs_ = 0;
   int level_ = 0;
+  bool infoSmall_ = false;
 };
 
 extern Ui ui;

@@ -212,7 +212,8 @@ class Ui {
   // 狀態列：Wi-Fi 名稱、是否連上 Pi
   void setStatus(const String& wifiName, bool linkUp, bool force = false);
 
-  void showInfo(const String& title, const String& body);
+  // small = true 用小字（內容行數多時，例如設定模式的說明）
+  void showInfo(const String& title, const String& body, bool small = false);
   void showHome();
   void showRecording(uint32_t elapsedMs, int level);
   // said：使用者說的話（還沒辨識完可以是空字串）；status：例如「辨識中…」「思考中…」
@@ -245,6 +246,7 @@ class Ui {
   String status_;
   uint32_t recMs_ = 0;
   int level_ = 0;
+  bool infoSmall_ = false;
 };
 
 extern Ui ui;
@@ -259,8 +261,14 @@ constexpr int W = 240;
 constexpr int H = 135;
 constexpr int BAR_H = 18;
 constexpr int PAD = 4;
-constexpr int LINE_H = 18;
-const lgfx::IFont* FONT = &fonts::efontTW_16;
+// 大字：回覆、你說的話、主要提示。想再大/小可換 efontTW_16 / efontTW_24 / efontTW_32
+const lgfx::IFont* BIG = &fonts::efontTW_24;
+constexpr int BIG_H = 26;
+// 小字：狀態列、標題、底部操作提示
+const lgfx::IFont* SMALL = &fonts::efontTW_16;
+constexpr int SMALL_H = 18;
+constexpr int TOP = BAR_H + PAD;            // 內容區頂端
+constexpr int FOOT_Y = H - SMALL_H;         // 底部提示列
 
 constexpr uint16_t COL_BG = TFT_BLACK;
 constexpr uint16_t COL_BAR = 0x2104;     // 深灰
@@ -270,7 +278,8 @@ constexpr uint16_t COL_ACCENT = 0xFD20;  // 橘
 constexpr uint16_t COL_OK = TFT_GREEN;
 constexpr uint16_t COL_BAD = TFT_RED;
 
-int contentLines() { return (H - BAR_H - PAD) / LINE_H; }
+// 從 y 到 bottom 之間放得下幾行大字
+int bigLines(int y, int bottom) { return (bottom - y) / BIG_H; }
 
 // UTF-8 一個字元佔幾個 byte
 int utf8Len(uint8_t c) {
@@ -287,7 +296,6 @@ void Ui::begin() {
   M5.Display.setBrightness(120);
   canvas.setColorDepth(16);
   canvas.createSprite(W, H);
-  canvas.setFont(FONT);
   canvas.setTextWrap(false);
 }
 
@@ -298,8 +306,9 @@ void Ui::setStatus(const String& wifiName, bool linkUp, bool force) {
   render();
 }
 
-void Ui::showInfo(const String& title, const String& body) {
+void Ui::showInfo(const String& title, const String& body, bool small) {
   mode_ = Mode::Info;
+  infoSmall_ = small;
   title_ = title;
   body_ = body;
   render();
@@ -325,9 +334,10 @@ void Ui::showThinking(const String& said, const String& status) {
 }
 
 void Ui::showHint(const String& hint) {
-  canvas.fillRect(0, H - LINE_H - 2, W, LINE_H + 2, COL_ACCENT);
+  canvas.setFont(SMALL);
+  canvas.fillRect(0, FOOT_Y - 2, W, SMALL_H + 2, COL_ACCENT);
   canvas.setTextColor(TFT_BLACK, COL_ACCENT);
-  canvas.drawString(hint.c_str(), PAD, H - LINE_H);
+  canvas.drawString(hint.c_str(), PAD, FOOT_Y);
   canvas.pushSprite(0, 0);
 }
 
@@ -348,10 +358,11 @@ void Ui::showApproval(const String& command, const String& description) {
 
 bool Ui::scrollDown() {
   if (mode_ != Mode::Reply) return false;
+  canvas.setFont(BIG);
   int total = wrap(body_, W - PAD * 2).size();
-  int visible = contentLines() - 1;  // 第一行是標題
+  int visible = bigLines(TOP, H);
   if (scroll_ + visible >= total) return false;
-  scroll_ += visible - 1;  // 保留一行重疊，比較好接著讀
+  scroll_ += max(1, visible - 1);  // 保留一行重疊，比較好接著讀
   render();
   return true;
 }
@@ -386,17 +397,22 @@ std::vector<String> Ui::wrap(const String& text, int width) {
 }
 
 void Ui::drawWrapped(const String& text, int x, int y, int w, int firstLine, int maxLines) {
+  // 用目前設定的字型；行高依字型決定
+  int lineH = canvas.getFont() == BIG ? BIG_H : SMALL_H;
   auto lines = wrap(text, w);
   for (int k = 0; k < maxLines && firstLine + k < (int)lines.size(); k++) {
-    canvas.drawString(lines[firstLine + k].c_str(), x, y + k * LINE_H);
+    canvas.drawString(lines[firstLine + k].c_str(), x, y + k * lineH);
   }
 }
 
 void Ui::drawStatusBar() {
+  canvas.setFont(SMALL);
   canvas.fillRect(0, 0, W, BAR_H, COL_BAR);
-  canvas.setTextColor(COL_TEXT, COL_BAR);
-  String wifiText = wifiName_.length() ? wifiName_ : String("無網路");
-  canvas.drawString(wifiText.c_str(), PAD, 1);
+  // 回覆畫面左上角顯示標題（Hermes / 錯誤 / 通知），其他畫面顯示 Wi-Fi
+  bool showTitle = mode_ == Mode::Reply && title_.length();
+  canvas.setTextColor(showTitle ? COL_ACCENT : COL_TEXT, COL_BAR);
+  String left = showTitle ? title_ : (wifiName_.length() ? wifiName_ : String("無網路"));
+  canvas.drawString(left.c_str(), PAD, 1);
 
   int level = M5.Power.getBatteryLevel();
   int right = W - PAD;
@@ -412,67 +428,78 @@ void Ui::drawStatusBar() {
 void Ui::render() {
   canvas.fillScreen(COL_BG);
   drawStatusBar();
-  const int top = BAR_H + PAD;
   const int w = W - PAD * 2;
-  const int lines = contentLines();
 
   switch (mode_) {
     case Mode::Info:
+      canvas.setFont(SMALL);
       canvas.setTextColor(COL_ACCENT, COL_BG);
-      canvas.drawString(title_.c_str(), PAD, top);
+      canvas.drawString(title_.c_str(), PAD, TOP);
+      canvas.setFont(infoSmall_ ? SMALL : BIG);
       canvas.setTextColor(COL_TEXT, COL_BG);
-      drawWrapped(body_, PAD, top + LINE_H, w, 0, lines - 1);
+      drawWrapped(body_, PAD, TOP + SMALL_H, w, 0,
+                  infoSmall_ ? (H - TOP - SMALL_H) / SMALL_H : bigLines(TOP + SMALL_H, H));
       break;
 
     case Mode::Home:
+      canvas.setFont(BIG);
       canvas.setTextColor(COL_TEXT, COL_BG);
-      canvas.drawString("按住 A 說話", PAD, top + LINE_H);
+      canvas.drawString("按住 A 說話", PAD, TOP + 8);
       canvas.setTextColor(COL_DIM, COL_BG);
-      canvas.drawString("放開就送出", PAD, top + LINE_H * 2);
-      canvas.drawString("B 兩下：新對話  長按：Wi-Fi", PAD, H - LINE_H);
+      canvas.drawString("放開就送出", PAD, TOP + 8 + BIG_H);
+      canvas.setFont(SMALL);
+      canvas.drawString("B 兩下：新對話  長按：Wi-Fi", PAD, FOOT_Y);
       break;
 
     case Mode::Recording: {
+      canvas.setFont(BIG);
       canvas.setTextColor(COL_ACCENT, COL_BG);
-      canvas.drawString("聆聽中…", PAD, top);
+      canvas.drawString("聆聽中…", PAD, TOP);
       canvas.setTextColor(COL_TEXT, COL_BG);
       String sec = String(recMs_ / 1000.0f, 1) + " 秒";
-      canvas.drawString(sec.c_str(), PAD, top + LINE_H);
+      canvas.drawString(sec.c_str(), PAD, TOP + BIG_H);
       // 音量條
-      int barW = (W - PAD * 2) * level_ / 100;
-      canvas.drawRect(PAD, top + LINE_H * 2 + 4, W - PAD * 2, 14, COL_DIM);
-      canvas.fillRect(PAD + 1, top + LINE_H * 2 + 5, max(0, barW - 2), 12, COL_OK);
+      int barY = TOP + BIG_H * 2 + 2;
+      int barW = w * level_ / 100;
+      canvas.drawRect(PAD, barY, w, 12, COL_DIM);
+      canvas.fillRect(PAD + 1, barY + 1, max(0, barW - 2), 10, COL_OK);
+      canvas.setFont(SMALL);
       canvas.setTextColor(COL_DIM, COL_BG);
-      canvas.drawString("放開 A 送出", PAD, H - LINE_H);
+      canvas.drawString("放開 A 送出", PAD, FOOT_Y);
       break;
     }
 
     case Mode::Thinking:
+      canvas.setFont(BIG);
       if (body_.length()) {
         canvas.setTextColor(COL_DIM, COL_BG);
-        drawWrapped("你：" + body_, PAD, top, w, 0, lines - 1);
+        drawWrapped("你：" + body_, PAD, TOP, w, 0, bigLines(TOP, FOOT_Y));
       }
+      canvas.setFont(SMALL);
       canvas.setTextColor(COL_ACCENT, COL_BG);
-      canvas.drawString(status_.c_str(), PAD, H - LINE_H);
+      canvas.drawString(status_.c_str(), PAD, FOOT_Y);
       break;
 
     case Mode::Approval:
+      // 指令通常很長，用小字才放得下
+      canvas.setFont(SMALL);
       canvas.setTextColor(COL_BAD, COL_BG);
-      canvas.drawString("Hermes 要執行：", PAD, top);
+      canvas.drawString("Hermes 要執行：", PAD, TOP);
       canvas.setTextColor(COL_TEXT, COL_BG);
-      drawWrapped(body_.length() ? body_ : title_, PAD, top + LINE_H, w, 0, lines - 2);
+      drawWrapped(body_.length() ? body_ : title_, PAD, TOP + SMALL_H, w, 0,
+                  (FOOT_Y - TOP - SMALL_H) / SMALL_H);
       canvas.setTextColor(COL_ACCENT, COL_BG);
-      canvas.drawString("A 允許一次  B 拒絕", PAD, H - LINE_H);
+      canvas.drawString("A 允許一次  B 拒絕", PAD, FOOT_Y);
       break;
 
     case Mode::Reply: {
-      canvas.setTextColor(COL_ACCENT, COL_BG);
-      canvas.drawString(title_.c_str(), PAD, top);
+      canvas.setFont(BIG);
       canvas.setTextColor(COL_TEXT, COL_BG);
+      int visible = bigLines(TOP, H);
       int total = wrap(body_, w).size();
-      drawWrapped(body_, PAD, top + LINE_H, w, scroll_, lines - 1);
-      if (scroll_ + lines - 1 < total) {
-        canvas.fillTriangle(W - 10, H - 8, W - 2, H - 8, W - 6, H - 3, COL_ACCENT);  // 還有下一頁
+      drawWrapped(body_, PAD, TOP, w, scroll_, visible);
+      if (scroll_ + visible < total) {
+        canvas.fillTriangle(W - 12, H - 9, W - 2, H - 9, W - 7, H - 2, COL_ACCENT);  // 還有下一頁（按 B）
       }
       break;
     }
@@ -641,7 +668,7 @@ bool WifiManager::takeChanged() {
 
 void WifiManager::switchNext() {
   if (settings.networkCount == 0) {
-    onStatus_("沒有已存的 Wi-Fi\n長按 B 5 秒進設定模式");
+    onStatus_("沒有存 Wi-Fi\nB 按 5 秒：設定");
     return;
   }
   connectBest(current_);
@@ -684,7 +711,7 @@ bool WifiManager::tryConnect(int index) {
 bool WifiManager::connectBest(int after) {
   const int count = settings.networkCount;
   if (count == 0) {
-    onStatus_("沒有已存的 Wi-Fi\n長按 B 5 秒進設定模式");
+    onStatus_("沒有存 Wi-Fi\nB 按 5 秒：設定");
     nextRetryAt_ = millis() + RETRY_INTERVAL_MS;
     return false;
   }
@@ -723,7 +750,7 @@ bool WifiManager::connectBest(int after) {
   }
   current_ = -1;
   nextRetryAt_ = millis() + RETRY_INTERVAL_MS;
-  onStatus_("找不到可用的 Wi-Fi\n30 秒後重試\nB 長按：重找\nB 長按 5 秒：設定");
+  onStatus_("找不到 Wi-Fi\n30 秒後重試\nB 按 5 秒：設定");
   return false;
 }
 
@@ -1066,7 +1093,8 @@ void runSetupPortal() {
   server.begin();
 
   ui.showInfo("設定模式",
-              "手機連 Wi-Fi：\n" + apName + "\n密碼：" SETUP_AP_PASSWORD "\n開 http://192.168.4.1\nA：重新開機");
+              "手機連 Wi-Fi：\n" + apName + "\n密碼：" SETUP_AP_PASSWORD "\n開 http://192.168.4.1\nA：重新開機",
+              true);
 
   for (;;) {
     dns.processNextRequest();

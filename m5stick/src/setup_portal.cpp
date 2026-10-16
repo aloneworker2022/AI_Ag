@@ -181,7 +181,8 @@ void runSetupPortal() {
   server.begin();
 
   ui.showInfo("設定模式",
-              "手機連 Wi-Fi：\n" + apName + "\n密碼：" SETUP_AP_PASSWORD "\n開 http://192.168.4.1\nA：重新開機");
+              "手機連 Wi-Fi：\n" + apName + "\n密碼：" SETUP_AP_PASSWORD "\n開 http://192.168.4.1\nA：重新開機",
+              true);
 
   for (;;) {
     dns.processNextRequest();

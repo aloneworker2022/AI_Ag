@@ -36,7 +36,7 @@ bool WifiManager::takeChanged() {
 
 void WifiManager::switchNext() {
   if (settings.networkCount == 0) {
-    onStatus_("沒有已存的 Wi-Fi\n長按 B 5 秒進設定模式");
+    onStatus_("沒有存 Wi-Fi\nB 按 5 秒：設定");
     return;
   }
   connectBest(current_);
@@ -79,7 +79,7 @@ bool WifiManager::tryConnect(int index) {
 bool WifiManager::connectBest(int after) {
   const int count = settings.networkCount;
   if (count == 0) {
-    onStatus_("沒有已存的 Wi-Fi\n長按 B 5 秒進設定模式");
+    onStatus_("沒有存 Wi-Fi\nB 按 5 秒：設定");
     nextRetryAt_ = millis() + RETRY_INTERVAL_MS;
     return false;
   }
@@ -118,6 +118,6 @@ bool WifiManager::connectBest(int after) {
   }
   current_ = -1;
   nextRetryAt_ = millis() + RETRY_INTERVAL_MS;
-  onStatus_("找不到可用的 Wi-Fi\n30 秒後重試\nB 長按：重找\nB 長按 5 秒：設定");
+  onStatus_("找不到 Wi-Fi\n30 秒後重試\nB 按 5 秒：設定");
   return false;
 }

@@ -272,7 +272,7 @@ constexpr int FOOT_Y = H - SMALL_H;         // 底部提示列
 
 constexpr uint16_t COL_BG = TFT_BLACK;
 constexpr uint16_t COL_BAR = 0x2104;     // 深灰
-constexpr uint16_t COL_TEXT = TFT_WHITE;
+constexpr uint16_t COL_TEXT = 0x3FE2;    // 螢光綠（RGB 57,255,20）
 constexpr uint16_t COL_DIM = 0x8410;     // 灰
 constexpr uint16_t COL_ACCENT = 0xFD20;  // 橘
 constexpr uint16_t COL_OK = TFT_GREEN;

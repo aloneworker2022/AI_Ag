@@ -18,7 +18,6 @@ void WifiManager::begin(StatusFn onStatus) {
   WiFi.persistent(false);       // 密碼由我們自己存在 NVS，不讓 Wi-Fi 驅動另存一份
   WiFi.setAutoReconnect(false);  // 斷線由 loop() 決定要重連哪一組
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);          // 關掉省電模式：長連線比較不會斷
   WiFi.setHostname(settings.deviceName.c_str());
   connectBest(-1);
 }

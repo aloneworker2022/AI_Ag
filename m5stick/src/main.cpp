@@ -11,6 +11,7 @@
 //   B 長按 5 秒放開：進入設定模式（用手機設定 Wi-Fi、Pi 位址、token）
 // 序列埠：在 serial monitor 打一行字按 Enter，會當成文字訊息送給 Pi（測試用）。
 #include <M5Unified.h>
+#include <WiFi.h>
 
 #include "link.h"
 #include "recorder.h"
@@ -291,6 +292,14 @@ void loop() {
         ui.showRecording(recorder.elapsedMs(), recorder.level());
       }
     }
+  }
+
+  // Wi-Fi 省電：待機時開著省電；說話、等回覆時暫時關掉，連線比較穩
+  static bool sleepOn = true;
+  bool busy = recorder.recording() || waitingId >= 0;
+  if (busy == sleepOn && wifi.connected()) {
+    sleepOn = !busy;
+    WiFi.setSleep(sleepOn);
   }
 
   // 等回覆時斷線：先等它自動重連（Pi 會把這一輪跑完，重連後補送回覆），太久才放棄

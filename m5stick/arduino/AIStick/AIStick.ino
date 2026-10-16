@@ -650,7 +650,6 @@ void WifiManager::begin(StatusFn onStatus) {
   WiFi.persistent(false);       // 密碼由我們自己存在 NVS，不讓 Wi-Fi 驅動另存一份
   WiFi.setAutoReconnect(false);  // 斷線由 loop() 決定要重連哪一組
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);          // 關掉省電模式：長連線比較不會斷
   WiFi.setHostname(settings.deviceName.c_str());
   connectBest(-1);
 }
@@ -1398,6 +1397,14 @@ void loop() {
         ui.showRecording(recorder.elapsedMs(), recorder.level());
       }
     }
+  }
+
+  // Wi-Fi 省電：待機時開著省電；說話、等回覆時暫時關掉，連線比較穩
+  static bool sleepOn = true;
+  bool busy = recorder.recording() || waitingId >= 0;
+  if (busy == sleepOn && wifi.connected()) {
+    sleepOn = !busy;
+    WiFi.setSleep(sleepOn);
   }
 
   // 等回覆時斷線：先等它自動重連（Pi 會把這一輪跑完，重連後補送回覆），太久才放棄

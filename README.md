@@ -45,10 +45,15 @@ hermes model
 
 ```bash
 API_SERVER_ENABLED=true
-API_SERVER_KEY=換成一組長一點的密碼
+API_SERVER_KEY=換成至少16個字元的金鑰
 ```
 
-然後啟動 `hermes gateway`，看到 `API server listening on http://127.0.0.1:8642` 就成功了。
+**金鑰一定要 16 個字元以上**，太短或像 `changeme` 這種預設值，Hermes 會**直接不開 API server、也不報錯**
+（8642 port 就不會有人聽）。可以用 `openssl rand -hex 16` 產生一組。
+
+然後啟動 `hermes gateway`（已經在跑的話，改完 `.env` 要 `hermes gateway restart`），
+看到 `API server listening on http://127.0.0.1:8642` 就成功了。
+確認：`ss -ltnp | grep 8642`。
 bridge 跟 Hermes 在同一台 Pi，所以 Hermes 只聽 127.0.0.1 就好，不用對外開。
 
 測試：

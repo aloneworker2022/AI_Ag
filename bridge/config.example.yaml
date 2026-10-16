@@ -12,8 +12,9 @@ device:
 hermes:
   # Hermes Agent 的 API server（在同一台 Pi 上就是 127.0.0.1）
   base_url: http://127.0.0.1:8642/v1
-  # 要跟 ~/.hermes/.env 裡的 API_SERVER_KEY 一樣
-  api_key: "change-me-hermes-key"
+  # 要跟 ~/.hermes/.env 裡的 API_SERVER_KEY 一樣。
+  # 至少 16 個字元，否則 Hermes 不會開 API server（可用 openssl rand -hex 16 產生）
+  api_key: "paste-your-API_SERVER_KEY-here"
   model: hermes-agent
   # 疊加在 Hermes 原本的系統提示上（不會蓋掉它的工具、記憶、skills）
   system_prompt: >-

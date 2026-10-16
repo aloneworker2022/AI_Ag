@@ -77,7 +77,7 @@ python -m bridge
 
 - 第一次說話時會下載 Whisper 模型（`stt.model`，預設 `small`），Pi 要能上網一次。
 - 開機自動啟動：見 `bridge/systemd/m5stick-bridge.service`。
-- 檢查：`curl http://<PiIP>:8000/health`、`curl http://<PiIP>:8000/devices`。
+- 檢查：`curl http://<PiIP>:3799/health`、`curl http://<PiIP>:3799/devices`。
 
 ## 4. Stick：燒錄韌體
 
@@ -91,4 +91,4 @@ python -m bridge
 - 對話會一直接續（Hermes 記得前面講過什麼）。想重新開始：首頁**連按兩下 B**，
   或說「開新對話」。
 - 從 Pi 推訊息到 Stick：
-  `curl -X POST http://<PiIP>:8000/devices/stick/notify -H 'Content-Type: application/json' -d '{"text":"該休息了"}'`
+  `curl -X POST http://<PiIP>:3799/devices/stick/notify -H 'Content-Type: application/json' -d '{"text":"該休息了"}'`

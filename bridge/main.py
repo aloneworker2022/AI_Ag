@@ -1,10 +1,10 @@
 """M5StickS3 ↔ Hermes Agent 橋接程式（跑在 Raspberry Pi 5）。
 
-Stick 透過 WebSocket 連到 ws://<pi>:8000/ws/device：
+Stick 透過 WebSocket 連到 ws://<pi>:3799/ws/device：
   說話（PCM 串流）→ 這裡用 Whisper 轉文字 → 送給 Hermes Agent → 回覆文字傳回 Stick。
 協定見 m5stick/README.md。
 
-啟動：python -m bridge   （或 uvicorn bridge.main:app --host 0.0.0.0 --port 8000）
+啟動：python -m bridge   （或 uvicorn bridge.main:app --host 0.0.0.0 --port 3799）
 """
 from __future__ import annotations
 

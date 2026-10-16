@@ -23,7 +23,7 @@
 
 // Pi 的位址。可以是 IP（推薦，在路由器固定 Pi 的 IP）或 mDNS 名稱（xxx.local）
 #define DEFAULT_SERVER_HOST "raspberrypi.local"
-#define DEFAULT_SERVER_PORT 8000
+#define DEFAULT_SERVER_PORT 3799
 
 // 要跟 Pi 上 bridge/config.yaml 的 device.token 一樣
 #define DEFAULT_TOKEN "change-me"
@@ -68,7 +68,7 @@ struct NetworkEntry {
 struct Settings {
   String deviceName;
   String serverHost;
-  uint16_t serverPort = 8000;
+  uint16_t serverPort = 3799;
   String token;
   NetworkEntry networks[MAX_NETWORKS];
   int networkCount = 0;

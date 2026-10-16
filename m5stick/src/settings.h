@@ -14,7 +14,7 @@ struct NetworkEntry {
 struct Settings {
   String deviceName;
   String serverHost;
-  uint16_t serverPort = 8000;
+  uint16_t serverPort = 3799;
   String token;
   NetworkEntry networks[MAX_NETWORKS];
   int networkCount = 0;

@@ -68,8 +68,8 @@ Hermes 用工具時顯示「使用工具：…」→ 回覆。
 ### 從 Pi 推訊息到 Stick 螢幕
 
 ```bash
-curl http://<pi>:8000/devices          # 看在線裝置
-curl -X POST http://<pi>:8000/devices/stick/notify \
+curl http://<pi>:3799/devices          # 看在線裝置
+curl -X POST http://<pi>:3799/devices/stick/notify \
      -H 'Content-Type: application/json' -d '{"title":"提醒","text":"該休息囉"}'
 ```
 

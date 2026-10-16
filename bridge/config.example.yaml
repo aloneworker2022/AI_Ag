@@ -3,7 +3,7 @@
 
 server:
   host: 0.0.0.0            # 要讓 Stick 連得進來，一定是 0.0.0.0
-  port: 8000
+  port: 3799
 
 device:
   # Stick 連線用的密碼，要跟韌體設定裡的 token 一樣。留空 = 不驗證（不建議）

@@ -9,8 +9,10 @@
 class Link {
  public:
   using MessageFn = std::function<void(JsonDocument&)>;
+  using BinaryFn = std::function<void(const uint8_t*, size_t)>;
 
   void onMessage(MessageFn fn) { onMessage_ = fn; }
+  void onBinary(BinaryFn fn) { onBinary_ = fn; }  // Pi 傳來的二進位（語音回覆）
 
   // Wi-Fi 換了就重新呼叫，會改連到該網路對應的 Pi 位址
   void start(const String& host, uint16_t port);
@@ -32,6 +34,7 @@ class Link {
 
  private:
   MessageFn onMessage_;
+  BinaryFn onBinary_;
   String host_;
   bool started_ = false;
   bool ready_ = false;

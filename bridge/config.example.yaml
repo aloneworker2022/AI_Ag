@@ -37,3 +37,15 @@ stt:
   traditional: true        # 用 OpenCC 把結果轉成繁體
   max_seconds: 30          # 一段話最長幾秒
   download_root: ""        # 模型存放位置，留空 = 預設快取
+
+tts:
+  # 回覆時讓 Stick 念出來。false = 只顯示文字
+  enabled: true
+  # edge-tts（微軟 Edge 線上語音，免費、不用金鑰，需要網路；Pi 也要裝 ffmpeg）
+  # 台灣口音：zh-TW-HsiaoChenNeural（曉臻，女）、zh-TW-HsiaoYuNeural（曉雨，女）、zh-TW-YunJheNeural（雲哲，男）
+  voice: zh-TW-HsiaoChenNeural
+  rate: "+0%"              # 語速，例如 "+10%" 快一點、"-10%" 慢一點
+  volume: "+0%"
+  pitch: "+0Hz"
+  sample_rate: 16000
+  max_chars: 400           # 回覆太長只念前面這麼多字（全文還是會顯示在螢幕上）

@@ -6,7 +6,7 @@
 #include "settings.h"
 
 #ifndef FW_VERSION
-#define FW_VERSION "0.2.0"
+#define FW_VERSION "0.3.0"
 #endif
 
 Link piLink;
@@ -53,6 +53,9 @@ void Link::start(const String& host, uint16_t port) {
       case WStype_DISCONNECTED:
         if (ready_) Serial.println("[link] 斷線，稍後自動重連");
         ready_ = false;
+        break;
+      case WStype_BIN:
+        if (onBinary_) onBinary_(payload, length);
         break;
       case WStype_TEXT: {
         JsonDocument doc;

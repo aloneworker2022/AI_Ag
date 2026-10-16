@@ -1,7 +1,7 @@
 # M5StickS3 韌體
 
 按住 A 說話，聲音串流到 Pi 上的 `bridge/`，由 Whisper 轉文字後交給 Hermes Agent，
-回覆文字顯示在螢幕上。整體架構與 Pi 端安裝見[根目錄 README](../README.md)。
+回覆文字顯示在螢幕上，並用喇叭念出來（曉臻的聲音，可在 Pi 的 bridge/config.yaml 換）。整體架構與 Pi 端安裝見[根目錄 README](../README.md)。
 
 ## 1. 先確認 Pi 端
 
@@ -55,6 +55,7 @@ Stick 最多記 6 組 Wi-Fi，**排越前面越優先**。開機時會掃描附�
 | **B 按住 1.5 秒放開** | 切到清單裡的下一組 Wi-Fi |
 | **B 按住 5 秒放開** | 進設定模式 |
 | 核准畫面：**A / B** | Hermes 要執行需要核准的指令時：A 允許一次、B 拒絕 |
+| 念回覆時按 **A** | 停止播放；按住就直接開始說下一句 |
 
 按住 B 時螢幕下方會提示「放開會做什麼」。
 
@@ -95,6 +96,10 @@ curl -X POST http://<pi>:3799/devices/stick/notify \
 | Stick → Pi | `approval_reply` | `id`, `choice`=`once`/`deny` | 核准結果 |
 | Pi → Stick | `reply` | `id`, `text` | Hermes 的回覆 |
 | Stick → Pi | `new_session` | | 開新對話 |
+| Pi → Stick | `audio_reply_start` | `id`, `format`=`pcm_s16le`, `rate` | 開始念回覆 |
+| Pi → Stick | （二進位） | 16-bit 單聲道 PCM | 語音回覆，Pi 照播放速度送 |
+| Pi → Stick | `audio_reply_end` | `id` | 念完 |
+| Stick → Pi | `tts_stop` | | 停止念（開始說話時 Pi 也會自動停） |
 | Pi → Stick | `notify` | `title`, `text` | Pi 主動推的訊息 |
 | Pi → Stick | `error` | `id`?, `message` | 錯誤（例如「沒聽清楚，再說一次」「連不到 Hermes」） |
 | 雙向 | `ping` / `pong` | `t` | 應用層心跳（另外也有 WebSocket ping） |
@@ -105,6 +110,7 @@ curl -X POST http://<pi>:3799/devices/stick/notify \
 |---|---|
 | `src/main.cpp` | 按鍵、畫面流程 |
 | `src/recorder.*` | 麥克風錄音、分段串流 |
+| `src/player.*` | 播放語音回覆（邊收邊播） |
 | `src/wifi_manager.*` | 多組 Wi-Fi 選擇、斷線重找、手動切換 |
 | `src/setup_portal.*` | 設定模式（熱點 + 網頁） |
 | `src/settings.*` | 設定讀寫（NVS） |

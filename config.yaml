@@ -26,3 +26,8 @@ dream:
 memory:
   history_turns: 12                 # 短期記憶保留最近幾輪對話
   auto_extract: true                # 每輪對話後自動抽取長期記憶
+
+device:
+  # M5StickS3 等外接裝置連線用的密碼（韌體裡的 token 要一樣）。
+  # 留空 = 不驗證，只建議在完全信任的區網這樣用。
+  token: "change-me"

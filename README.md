@@ -30,6 +30,14 @@ uvicorn backend.main:app --reload
 
 開瀏覽器到 http://127.0.0.1:8000 即可。
 
+想讓區網內其他裝置（手機、M5StickS3）連進來，改用 `--host 0.0.0.0`。
+
+## M5StickS3 隨身終端
+
+`m5stick/` 是 M5StickS3 的韌體，透過 Wi-Fi + WebSocket（`/ws/device`）跟伴侶對話，
+支援多組 Wi-Fi（家裡 / 手機熱點）自動選擇與手動切換。設定與燒錄見
+[m5stick/README.md](m5stick/README.md)。
+
 ## 設定
 
 全部在 `config.yaml`：

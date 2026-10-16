@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from contextlib import asynccontextmanager
 from typing import Any
@@ -15,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import dream, llm, memory, skills
+from . import device, dream, llm, memory, skills
 from .config import (DREAM_IMAGES_DIR, FRONTEND_DIR, ensure_dirs, get_config)
 
 scheduler = AsyncIOScheduler()
@@ -98,12 +99,8 @@ async def _extract_memory(user_msg: str, ai_msg: str) -> None:
             memory.append_event(ev.strip())
 
 
-@app.post("/chat")
-async def chat(body: ChatIn):
-    msg = body.message.strip()
-    if not msg:
-        raise HTTPException(400, "空訊息")
-
+async def run_chat(msg: str, extract_in_background: bool = False) -> dict[str, Any]:
+    """聊天核心：網頁 /chat 與裝置 WebSocket 共用。"""
     persona_injections, tool_outputs, triggered = skills.apply(msg)
     relevant = memory.search(msg)
     system = _build_system_prompt(persona_injections, tool_outputs, relevant)
@@ -117,8 +114,13 @@ async def chat(body: ChatIn):
     memory.append_history("user", msg)
     memory.append_history("assistant", reply)
 
-    # 記憶抽取（同步跑，量小；想更快可改背景）
-    await _extract_memory(msg, reply)
+    # 記憶抽取：網頁端同步跑（量小）；裝置端丟背景，讓回覆先送到手上
+    if extract_in_background:
+        task = asyncio.create_task(_extract_memory(msg, reply))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+    else:
+        await _extract_memory(msg, reply)
 
     # 立繪：伴侶的夢境圖（若有）
     character_image = dream.image_for("characters/companion.md")
@@ -137,6 +139,17 @@ async def chat(body: ChatIn):
         "scene_image": scene_image,
         "triggered_skills": triggered,
     }
+
+
+_background_tasks: set[asyncio.Task] = set()
+
+
+@app.post("/chat")
+async def chat(body: ChatIn):
+    msg = body.message.strip()
+    if not msg:
+        raise HTTPException(400, "空訊息")
+    return await run_chat(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +216,13 @@ async def memory_delete(path: str):
 async def skills_list():
     return [{"name": s["name"], "type": s["type"], "triggers": s["triggers"],
              "description": s["description"]} for s in skills.load_skills()]
+
+
+# ---------------------------------------------------------------------------
+# 外接裝置（M5StickS3 等），見 backend/device.py
+# ---------------------------------------------------------------------------
+device.set_chat_handler(lambda msg: run_chat(msg, extract_in_background=True))
+app.include_router(device.router)
 
 
 # ---------------------------------------------------------------------------

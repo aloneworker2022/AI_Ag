@@ -13,3 +13,7 @@ memory/facts/user.md
 # 抽取產生的非伴侶人物
 memory/characters/*.md
 !memory/characters/companion.md
+
+# M5StickS3 韌體：自己的 Wi-Fi 密碼與 token、PlatformIO 編譯產物
+m5stick/include/secrets.h
+m5stick/.pio/

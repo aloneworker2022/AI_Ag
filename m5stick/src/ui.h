@@ -13,8 +13,12 @@ class Ui {
   void setStatus(const String& wifiName, bool linkUp, bool force = false);
 
   void showInfo(const String& title, const String& body);
-  void showHome(const String& preset, int index, int total);
-  void showThinking(const String& said);
+  void showHome();
+  void showRecording(uint32_t elapsedMs, int level);
+  // said：使用者說的話（還沒辨識完可以是空字串）；status：例如「辨識中…」「思考中…」
+  void showThinking(const String& said, const String& status);
+  // 長按 B 時的提示（放開會做什麼）
+  void showHint(const String& hint);
   void showReply(const String& title, const String& text);
 
   // 回覆畫面捲動；捲到底回傳 false
@@ -22,7 +26,7 @@ class Ui {
   bool isReply() const { return mode_ == Mode::Reply; }
 
  private:
-  enum class Mode { Info, Home, Thinking, Reply };
+  enum class Mode { Info, Home, Recording, Thinking, Reply };
 
   void render();
   void drawStatusBar();
@@ -35,8 +39,9 @@ class Ui {
   String wifiName_;
   bool linkUp_ = false;
   int scroll_ = 0;
-  int homeIndex_ = 0;
-  int homeTotal_ = 0;
+  String status_;
+  uint32_t recMs_ = 0;
+  int level_ = 0;
 };
 
 extern Ui ui;

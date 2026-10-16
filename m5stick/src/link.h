@@ -24,6 +24,12 @@ class Link {
   bool send(JsonDocument& doc);
   int sendChat(const String& text);  // 回傳訊息 id；沒連上回傳 -1
 
+  // 語音串流：audioStart → sendAudio（多次）→ audioEnd（或 audioCancel）
+  int audioStart(uint32_t sampleRate);  // 回傳訊息 id；沒連上回傳 -1
+  bool sendAudio(const int16_t* samples, size_t count);
+  void audioEnd(int id);
+  void audioCancel(int id);
+
  private:
   MessageFn onMessage_;
   String host_;

@@ -34,7 +34,8 @@ uvicorn backend.main:app --reload
 
 ## M5StickS3 隨身終端
 
-`m5stick/` 是 M5StickS3 的韌體，透過 Wi-Fi + WebSocket（`/ws/device`）跟伴侶對話，
+`m5stick/` 是 M5StickS3 的韌體：按住按鍵說話，Pi 用本地 Whisper 辨識後交給伴侶，
+回覆文字顯示在 Stick 上。透過 Wi-Fi + WebSocket（`/ws/device`）連線，
 支援多組 Wi-Fi（家裡 / 手機熱點）自動選擇與手動切換。設定與燒錄見
 [m5stick/README.md](m5stick/README.md)。
 

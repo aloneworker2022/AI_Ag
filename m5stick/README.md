@@ -2,18 +2,24 @@
 
 讓 M5StickS3 透過 Wi-Fi 跟 Raspberry Pi 5 上的 AI 伴侶對話。
 
-目前是**第 1 階段：文字對話**。之後依序加入：語音 → 圖片 → 感測器 / GPIO。
+目前是**第 1 階段：用說的，Pi 回覆文字**。按住 A 對 Stick 說話，Pi 用本地
+Whisper 辨識成文字交給 AI，回覆顯示在 Stick 螢幕上。
+之後依序加入：語音回覆（Stick 念出來）→ 圖片 → 感測器 / GPIO。
 所有功能都走同一條 WebSocket（`ws://<pi>:8000/ws/device`），後面的階段只會新增訊息類型。
 
 ## 1. Pi 端準備
 
 ```bash
+pip install -r requirements.txt      # 包含 faster-whisper（語音辨識）與 opencc（轉繁體）
 # config.yaml 裡把 device.token 改成你自己的密碼
 uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
 一定要加 `--host 0.0.0.0`，不然 Stick 連不進來。
 建議在路由器幫 Pi 固定 IP。
+
+語音辨識設定在 `config.yaml` 的 `stt:`。預設模型 `small`，第一次說話時會自動下載
+（Pi 要能上網一次），之後完全離線。Pi 5 上一句話大約要幾秒；嫌慢可以改成 `base`。
 
 ## 2. 燒錄韌體
 
@@ -41,7 +47,7 @@ Stick 最多記 6 組 Wi-Fi，**排越前面越優先**。開機時會掃描附�
 
 ### 設定模式（用手機改設定）
 
-1. Stick 上**長按 A 3 秒**（第一次開機、還沒存任何 Wi-Fi 時會自動進入）
+1. Stick 上**按住 B 5 秒再放開**（第一次開機、還沒存任何 Wi-Fi 時會自動進入）
 2. 手機連上螢幕顯示的 Wi-Fi `AIStick-XXXX`（密碼預設 `aistick123`）
 3. 通常會自動跳出設定頁；沒跳的話用瀏覽器開 `http://192.168.4.1`
 4. 可以：新增 / 更新 / 刪除 / 調整順序 Wi-Fi、改 Pi 位址、port、token、裝置名稱
@@ -52,16 +58,20 @@ Stick 最多記 6 組 Wi-Fi，**排越前面越優先**。開機時會掃描附�
 
 ## 4. 操作
 
-| 按鍵 | 首頁 | 回覆畫面 |
-|---|---|---|
-| A 單按 | 送出這句 | 回首頁 |
-| B 單按 | 下一句 | 往下捲，捲到底回首頁 |
-| **B 長按 1.5 秒** | 切到清單裡的下一組 Wi-Fi | 同左 |
-| **A 長按 3 秒** | 進設定模式 | 同左 |
+| 按鍵 | 動作 |
+|---|---|
+| **A 按住** | 說話；放開就送出（太短當誤觸，最長 30 秒會自動送出） |
+| B 單按 | 回覆太長時往下捲，捲到底回首頁 |
+| **B 按住 1.5 秒放開** | 切到清單裡的下一組 Wi-Fi |
+| **B 按住 5 秒放開** | 進設定模式 |
+
+按住 B 時螢幕下方會提示「放開會做什麼」。
+
+畫面流程：聆聽中（秒數＋音量條）→ 辨識中… → 顯示你說的話＋思考中… → 回覆。
 
 狀態列：左邊是目前 Wi-Fi，右邊圓點綠色 = 已連上 Pi、紅色 = 沒連上，最右邊是電量。
 
-在 serial monitor 打一行字按 Enter，也會當成訊息送出（方便測試任意文字）。
+在 serial monitor 打一行字按 Enter，會當成文字訊息送出（不用說話也能測試）。
 
 ### 從 Pi 推訊息到 Stick 螢幕
 
@@ -73,17 +83,23 @@ curl -X POST http://<pi>:8000/devices/stick/notify \
 
 ## 5. 協定（v1）
 
-文字訊息都是 JSON：`{"type": "...", ...}`。之後的語音 / 圖片會用二進位訊息。
+文字訊息都是 JSON：`{"type": "...", ...}`。
+二進位訊息一律屬於「最近一個 `*_start`」開啟的串流（目前只有語音）。
 
 | 方向 | type | 欄位 | 說明 |
 |---|---|---|---|
 | Stick → Pi | `hello` | `device`, `fw`, `proto`, `token` | 連上後第一則，必須是它；token 錯會被斷線（code 4401） |
 | Pi → Stick | `welcome` | `proto`, `companion` | 驗證通過 |
-| Stick → Pi | `chat` | `id`, `text` | 傳話給 AI |
-| Pi → Stick | `thinking` | `id` | 收到了，正在想 |
+| Stick → Pi | `audio_start` | `id`, `format`=`pcm_s16le`, `rate`=16000 | 開始說話 |
+| Stick → Pi | （二進位） | 16-bit little-endian 單聲道 PCM | 邊錄邊傳，每段 32 ms |
+| Stick → Pi | `audio_end` / `audio_cancel` | `id` | 說完 / 誤觸取消 |
+| Pi → Stick | `transcribing` | `id` | 辨識中 |
+| Pi → Stick | `transcript` | `id`, `text` | 辨識結果（你說了什麼） |
+| Stick → Pi | `chat` | `id`, `text` | 直接傳文字（序列埠測試用） |
+| Pi → Stick | `thinking` | `id` | AI 正在想 |
 | Pi → Stick | `reply` | `id`, `text` | AI 回覆 |
 | Pi → Stick | `notify` | `title`, `text` | Pi 主動推的訊息 |
-| Pi → Stick | `error` | `id`?, `message` | 錯誤 |
+| Pi → Stick | `error` | `id`?, `message` | 錯誤（例如「沒聽清楚，再說一次」） |
 | 雙向 | `ping` / `pong` | `t` | 應用層心跳（另外也有 WebSocket ping） |
 
 Pi 主動對裝置下指令（之後的 `sensor_read`、`gpio_write` 等）會帶 `id`，
@@ -93,7 +109,8 @@ Pi 主動對裝置下指令（之後的 `sensor_read`、`gpio_write` 等）會�
 
 | 檔案 | 內容 |
 |---|---|
-| `src/main.cpp` | 按鍵、畫面流程、預設句子 |
+| `src/main.cpp` | 按鍵、畫面流程 |
+| `src/recorder.*` | 麥克風錄音、分段串流 |
 | `src/wifi_manager.*` | 多組 Wi-Fi 選擇、斷線重找、手動切換 |
 | `src/setup_portal.*` | 設定模式（熱點 + 網頁） |
 | `src/settings.*` | 設定讀寫（NVS） |

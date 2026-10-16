@@ -57,18 +57,30 @@ void Ui::showInfo(const String& title, const String& body) {
   render();
 }
 
-void Ui::showHome(const String& preset, int index, int total) {
+void Ui::showHome() {
   mode_ = Mode::Home;
-  body_ = preset;
-  homeIndex_ = index;
-  homeTotal_ = total;
   render();
 }
 
-void Ui::showThinking(const String& said) {
+void Ui::showRecording(uint32_t elapsedMs, int level) {
+  mode_ = Mode::Recording;
+  recMs_ = elapsedMs;
+  level_ = level;
+  render();
+}
+
+void Ui::showThinking(const String& said, const String& status) {
   mode_ = Mode::Thinking;
   body_ = said;
+  status_ = status;
   render();
+}
+
+void Ui::showHint(const String& hint) {
+  canvas.fillRect(0, H - LINE_H - 2, W, LINE_H + 2, COL_ACCENT);
+  canvas.setTextColor(TFT_BLACK, COL_ACCENT);
+  canvas.drawString(hint.c_str(), PAD, H - LINE_H);
+  canvas.pushSprite(0, 0);
 }
 
 void Ui::showReply(const String& title, const String& text) {
@@ -157,22 +169,36 @@ void Ui::render() {
       drawWrapped(body_, PAD, top + LINE_H, w, 0, lines - 1);
       break;
 
-    case Mode::Home: {
-      canvas.setTextColor(COL_DIM, COL_BG);
-      String head = "想說的話 " + String(homeIndex_ + 1) + "/" + String(homeTotal_);
-      canvas.drawString(head.c_str(), PAD, top);
+    case Mode::Home:
       canvas.setTextColor(COL_TEXT, COL_BG);
-      drawWrapped(body_, PAD, top + LINE_H, w, 0, lines - 2);
+      canvas.drawString("按住 A 說話", PAD, top + LINE_H);
       canvas.setTextColor(COL_DIM, COL_BG);
-      canvas.drawString("A 送出  B 下一句", PAD, H - LINE_H);
+      canvas.drawString("放開就送出", PAD, top + LINE_H * 2);
+      canvas.drawString("B 長按：換 Wi-Fi / 設定", PAD, H - LINE_H);
+      break;
+
+    case Mode::Recording: {
+      canvas.setTextColor(COL_ACCENT, COL_BG);
+      canvas.drawString("聆聽中…", PAD, top);
+      canvas.setTextColor(COL_TEXT, COL_BG);
+      String sec = String(recMs_ / 1000.0f, 1) + " 秒";
+      canvas.drawString(sec.c_str(), PAD, top + LINE_H);
+      // 音量條
+      int barW = (W - PAD * 2) * level_ / 100;
+      canvas.drawRect(PAD, top + LINE_H * 2 + 4, W - PAD * 2, 14, COL_DIM);
+      canvas.fillRect(PAD + 1, top + LINE_H * 2 + 5, max(0, barW - 2), 12, COL_OK);
+      canvas.setTextColor(COL_DIM, COL_BG);
+      canvas.drawString("放開 A 送出", PAD, H - LINE_H);
       break;
     }
 
     case Mode::Thinking:
-      canvas.setTextColor(COL_DIM, COL_BG);
-      drawWrapped("你：" + body_, PAD, top, w, 0, lines - 1);
+      if (body_.length()) {
+        canvas.setTextColor(COL_DIM, COL_BG);
+        drawWrapped("你：" + body_, PAD, top, w, 0, lines - 1);
+      }
       canvas.setTextColor(COL_ACCENT, COL_BG);
-      canvas.drawString("思考中…", PAD, H - LINE_H);
+      canvas.drawString(status_.c_str(), PAD, H - LINE_H);
       break;
 
     case Mode::Reply: {

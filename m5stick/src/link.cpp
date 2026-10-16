@@ -97,3 +97,34 @@ int Link::sendChat(const String& text) {
   doc["text"] = text;
   return send(doc) ? id : -1;
 }
+
+int Link::audioStart(uint32_t sampleRate) {
+  if (!ready_) return -1;
+  JsonDocument doc;
+  int id = nextId_++;
+  doc["type"] = "audio_start";
+  doc["id"] = id;
+  doc["format"] = "pcm_s16le";
+  doc["rate"] = sampleRate;
+  return send(doc) ? id : -1;
+}
+
+bool Link::sendAudio(const int16_t* samples, size_t count) {
+  if (!started_ || !ws.isConnected()) return false;
+  // ESP32 是 little-endian，記憶體裡的 int16 就是 pcm_s16le
+  return ws.sendBIN(reinterpret_cast<const uint8_t*>(samples), count * sizeof(int16_t));
+}
+
+void Link::audioEnd(int id) {
+  JsonDocument doc;
+  doc["type"] = "audio_end";
+  doc["id"] = id;
+  send(doc);
+}
+
+void Link::audioCancel(int id) {
+  JsonDocument doc;
+  doc["type"] = "audio_cancel";
+  doc["id"] = id;
+  send(doc);
+}

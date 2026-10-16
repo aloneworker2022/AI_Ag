@@ -31,3 +31,15 @@ device:
   # M5StickS3 等外接裝置連線用的密碼（韌體裡的 token 要一樣）。
   # 留空 = 不驗證，只建議在完全信任的區網這樣用。
   token: "change-me"
+
+stt:
+  # 語音轉文字（本地 faster-whisper），給 M5StickS3 用說的。
+  # Pi 5 建議 small（中文較準）；嫌慢可改 base。第一次用會自動下載模型。
+  model: small
+  language: zh
+  compute_type: int8
+  beam_size: 1
+  initial_prompt: "以下是繁體中文的日常對話。"
+  traditional: true                # 用 OpenCC 把結果轉成繁體
+  max_seconds: 30                  # 一段話最長幾秒
+  download_root: ""                # 模型存放位置，留空 = 預設快取

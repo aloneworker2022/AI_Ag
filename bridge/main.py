@@ -60,12 +60,16 @@ def new_session(device: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 在線裝置
+# 裝置：以名稱為單位保留狀態，斷線重連後還是同一個 Device，
+# 正在跑的這一輪不會被取消，沒送到的訊息重連後補送。
 # ---------------------------------------------------------------------------
+OUTBOX_MAX = 20
+
+
 @dataclass
 class Device:
     name: str
-    ws: WebSocket
+    ws: WebSocket | None   # None = 目前離線
     fw: str = ""
     connected_at: float = field(default_factory=time.time)
     busy: bool = False
@@ -76,10 +80,32 @@ class Device:
     audio_buf: bytearray = field(default_factory=bytearray)
     # 等使用者在 Stick 上按「允許 / 拒絕」
     approval: asyncio.Future | None = None
+    # 斷線時沒送到、屬於某一輪（有 id）的訊息，重連後補送
+    outbox: list[dict[str, Any]] = field(default_factory=list)
+    # 背景跑的辨識 / Hermes 工作，不跟著連線結束
+    tasks: set[asyncio.Task] = field(default_factory=set)
+
+    @property
+    def online(self) -> bool:
+        return self.ws is not None
 
     async def send(self, payload: dict[str, Any]) -> None:
         async with self._send_lock:
-            await self.ws.send_text(json.dumps(payload, ensure_ascii=False))
+            ws = self.ws
+            if ws is not None:
+                try:
+                    await ws.send_text(json.dumps(payload, ensure_ascii=False))
+                    return
+                except Exception:  # 連線剛好斷了
+                    log.info("%s: send failed, queueing %s", self.name, payload.get("type"))
+            if payload.get("id") is not None:
+                self.outbox.append(payload)
+                del self.outbox[:-OUTBOX_MAX]
+
+    async def flush(self) -> None:
+        pending, self.outbox = self.outbox, []
+        for payload in pending:
+            await self.send(payload)
 
 
 devices: dict[str, Device] = {}
@@ -138,8 +164,6 @@ async def _respond(dev: Device, msg_id: Any, get_text: Callable[[], Awaitable[st
             text, session_id=session_id, session_key=session_key,
             cb=hermes.TurnCallbacks(on_tool=on_tool, on_status=on_status, on_approval=on_approval))
         await dev.send({"type": "reply", "id": msg_id, "text": reply or "（Hermes 沒有回覆文字）"})
-    except WebSocketDisconnect:
-        raise
     except (hermes.HermesError, stt.SttUnavailable) as e:
         await dev.send({"type": "error", "id": msg_id, "message": str(e)})
     except Exception as e:
@@ -177,7 +201,8 @@ def _spawn(tasks: set[asyncio.Task], coro) -> None:
     t.add_done_callback(tasks.discard)
 
 
-async def _on_text(dev: Device, msg: dict[str, Any], tasks: set[asyncio.Task]) -> None:
+async def _on_text(dev: Device, msg: dict[str, Any]) -> None:
+    tasks = dev.tasks
     mtype = msg.get("type")
     if mtype == "ping":
         await dev.send({"type": "pong", "t": msg.get("t")})
@@ -234,18 +259,24 @@ async def device_ws(ws: WebSocket) -> None:
         return
 
     name = str(hello.get("device") or "stick")[:32]
-    dev = Device(name=name, ws=ws, fw=str(hello.get("fw") or ""))
-    old = devices.get(name)
-    devices[name] = dev
-    if old:
-        try:
-            await old.ws.close(code=4000)
-        except Exception:
-            pass
-    log.info("device connected: %s fw=%s", name, dev.fw)
+    dev = devices.get(name)
+    if dev is None:
+        dev = Device(name=name, ws=ws)
+        devices[name] = dev
+    else:
+        old_ws, dev.ws = dev.ws, ws
+        if old_ws is not None:
+            try:
+                await old_ws.close(code=4000)
+            except Exception:
+                pass
+    dev.fw = str(hello.get("fw") or "")
+    dev.connected_at = time.time()
+    dev.audio_id, dev.audio_buf = None, bytearray()  # 斷在說話中途的那段丟掉
+    log.info("device connected: %s fw=%s (補送 %d 則)", name, dev.fw, len(dev.outbox))
     await dev.send({"type": "welcome", "proto": PROTOCOL_VERSION, "agent": "Hermes"})
+    await dev.flush()
 
-    tasks: set[asyncio.Task] = set()
     try:
         while True:
             event = await ws.receive()
@@ -260,17 +291,15 @@ async def device_ws(ws: WebSocket) -> None:
                 await dev.send({"type": "error", "message": "不是 JSON"})
                 continue
             if isinstance(msg, dict):
-                await _on_text(dev, msg, tasks)
+                await _on_text(dev, msg)
     except WebSocketDisconnect:
         pass
     finally:
-        if dev.approval and not dev.approval.done():
-            dev.approval.set_result("deny")  # 斷線就當作拒絕
-        for t in tasks:
-            t.cancel()
-        if devices.get(name) is dev:
-            del devices[name]
-        log.info("device disconnected: %s", name)
+        # 正在跑的這一輪繼續跑完，回覆等 Stick 重連後補送；
+        # 等核准的指令則交給 approval_timeout 處理。
+        if dev.ws is ws:
+            dev.ws = None
+        log.info("device disconnected: %s (進行中 %d 項)", name, len(dev.tasks))
 
 
 # ---------------------------------------------------------------------------
@@ -278,13 +307,13 @@ async def device_ws(ws: WebSocket) -> None:
 # ---------------------------------------------------------------------------
 @app.get("/health")
 async def health():
-    return {"ok": True, "devices": len(devices)}
+    return {"ok": True, "devices": sum(d.online for d in devices.values())}
 
 
 @app.get("/devices")
 async def list_devices():
-    return [{"name": d.name, "fw": d.fw, "connected_at": d.connected_at, "busy": d.busy,
-             "session": session_ids(d.name)[0]} for d in devices.values()]
+    return [{"name": d.name, "fw": d.fw, "online": d.online, "connected_at": d.connected_at,
+             "busy": d.busy, "session": session_ids(d.name)[0]} for d in devices.values()]
 
 
 class NotifyIn(BaseModel):
@@ -295,7 +324,7 @@ class NotifyIn(BaseModel):
 @app.post("/devices/{name}/notify")
 async def notify_device(name: str, body: NotifyIn):
     dev = devices.get(name)
-    if not dev:
+    if not dev or not dev.online:
         raise HTTPException(404, "裝置不在線")
     await dev.send({"type": "notify", "title": body.title, "text": body.text})
     return {"ok": True}

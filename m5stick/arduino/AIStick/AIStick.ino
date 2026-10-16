@@ -650,6 +650,7 @@ void WifiManager::begin(StatusFn onStatus) {
   WiFi.persistent(false);       // 密碼由我們自己存在 NVS，不讓 Wi-Fi 驅動另存一份
   WiFi.setAutoReconnect(false);  // 斷線由 loop() 決定要重連哪一組
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);          // 關掉省電模式：長連線比較不會斷
   WiFi.setHostname(settings.deviceName.c_str());
   connectBest(-1);
 }
@@ -856,7 +857,8 @@ void Link::start(const String& host, uint16_t port) {
   });
   ws.begin(addr, port, "/ws/device");
   ws.setReconnectInterval(3000);
-  ws.enableHeartbeat(15000, 5000, 2);  // WebSocket ping；連續 2 次沒回就判定斷線
+  // WebSocket ping：每 15 秒一次，10 秒內沒回算一次失敗，連續 3 次才判定斷線
+  ws.enableHeartbeat(15000, 10000, 3);
   started_ = true;
 }
 
@@ -1127,6 +1129,7 @@ void runSetupPortal() {
 namespace {
 constexpr uint32_t IDLE_TIMEOUT_MS = 300000;  // 超過這麼久沒收到任何進度才算逾時（agent 可能跑很久）
 constexpr uint32_t DOUBLE_CLICK_MS = 2500;
+constexpr uint32_t RECONNECT_GRACE_MS = 60000;  // 等回覆時斷線，最多等這麼久重連
 constexpr uint32_t MIN_SPEECH_MS = 400;        // 按太短當作誤觸
 constexpr uint32_t MAX_SPEECH_MS = 30000;      // 跟 Pi 的 stt.max_seconds 一致
 constexpr uint32_t HOLD_SWITCH_MS = 1500;
@@ -1397,10 +1400,33 @@ void loop() {
     }
   }
 
-  if (waitingId >= 0 && (!piLink.ready() || millis() - waitingSince > IDLE_TIMEOUT_MS)) {
-    waitingId = -1;
-    approvalPending = false;
-    ui.showReply("錯誤", piLink.ready() ? "等太久沒有回覆" : "跟 Pi 的連線斷了");
+  // 等回覆時斷線：先等它自動重連（Pi 會把這一輪跑完，重連後補送回覆），太久才放棄
+  static uint32_t lostSince = 0;
+  if (waitingId >= 0) {
+    if (!piLink.ready()) {
+      if (lostSince == 0) {
+        lostSince = millis();
+        ui.showThinking(said, "連線中斷，重新連線中…");
+      } else if (millis() - lostSince > RECONNECT_GRACE_MS) {
+        waitingId = -1;
+        approvalPending = false;
+        lostSince = 0;
+        ui.showReply("錯誤", "跟 Pi 的連線斷了");
+      }
+    } else {
+      if (lostSince != 0) {
+        lostSince = 0;
+        waitingSince = millis();
+        ui.showThinking(said, "已重新連上，等待回覆…");
+      }
+      if (millis() - waitingSince > IDLE_TIMEOUT_MS) {
+        waitingId = -1;
+        approvalPending = false;
+        ui.showReply("錯誤", "等太久沒有回覆");
+      }
+    }
+  } else {
+    lostSince = 0;
   }
 
   static uint32_t lastStatus = 0;

@@ -67,7 +67,8 @@ void Link::start(const String& host, uint16_t port) {
   });
   ws.begin(addr, port, "/ws/device");
   ws.setReconnectInterval(3000);
-  ws.enableHeartbeat(15000, 5000, 2);  // WebSocket ping；連續 2 次沒回就判定斷線
+  // WebSocket ping：每 15 秒一次，10 秒內沒回算一次失敗，連續 3 次才判定斷線
+  ws.enableHeartbeat(15000, 10000, 3);
   started_ = true;
 }
 

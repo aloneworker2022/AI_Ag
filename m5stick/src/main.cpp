@@ -22,6 +22,7 @@
 namespace {
 constexpr uint32_t IDLE_TIMEOUT_MS = 300000;  // 超過這麼久沒收到任何進度才算逾時（agent 可能跑很久）
 constexpr uint32_t DOUBLE_CLICK_MS = 2500;
+constexpr uint32_t RECONNECT_GRACE_MS = 60000;  // 等回覆時斷線，最多等這麼久重連
 constexpr uint32_t MIN_SPEECH_MS = 400;        // 按太短當作誤觸
 constexpr uint32_t MAX_SPEECH_MS = 30000;      // 跟 Pi 的 stt.max_seconds 一致
 constexpr uint32_t HOLD_SWITCH_MS = 1500;
@@ -292,10 +293,33 @@ void loop() {
     }
   }
 
-  if (waitingId >= 0 && (!piLink.ready() || millis() - waitingSince > IDLE_TIMEOUT_MS)) {
-    waitingId = -1;
-    approvalPending = false;
-    ui.showReply("錯誤", piLink.ready() ? "等太久沒有回覆" : "跟 Pi 的連線斷了");
+  // 等回覆時斷線：先等它自動重連（Pi 會把這一輪跑完，重連後補送回覆），太久才放棄
+  static uint32_t lostSince = 0;
+  if (waitingId >= 0) {
+    if (!piLink.ready()) {
+      if (lostSince == 0) {
+        lostSince = millis();
+        ui.showThinking(said, "連線中斷，重新連線中…");
+      } else if (millis() - lostSince > RECONNECT_GRACE_MS) {
+        waitingId = -1;
+        approvalPending = false;
+        lostSince = 0;
+        ui.showReply("錯誤", "跟 Pi 的連線斷了");
+      }
+    } else {
+      if (lostSince != 0) {
+        lostSince = 0;
+        waitingSince = millis();
+        ui.showThinking(said, "已重新連上，等待回覆…");
+      }
+      if (millis() - waitingSince > IDLE_TIMEOUT_MS) {
+        waitingId = -1;
+        approvalPending = false;
+        ui.showReply("錯誤", "等太久沒有回覆");
+      }
+    }
+  } else {
+    lostSince = 0;
   }
 
   static uint32_t lastStatus = 0;

@@ -14,7 +14,7 @@
 #define DEFAULT_SERVER_HOST "raspberrypi.local"
 #define DEFAULT_SERVER_PORT 8000
 
-// 要跟 Pi 上 config.yaml 的 device.token 一樣
+// 要跟 Pi 上 bridge/config.yaml 的 device.token 一樣
 #define DEFAULT_TOKEN "change-me"
 
 // 設定模式時，Stick 自己開的熱點密碼（至少 8 碼）

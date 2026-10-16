@@ -1,8 +1,12 @@
-// AI 伴侶隨身終端（M5StickS3）— 第 1 階段：用說的，Pi 回覆文字
+// Hermes Agent 隨身終端（M5StickS3）：用說的，Hermes 回覆文字
+//
+// Stick ──WebSocket──▶ Pi 上的 bridge（Whisper 語音辨識）──▶ Hermes Agent
 //
 // 按鍵：
 //   A 按住：說話（放開就送出給 Pi 辨識）
 //   B 單按：回覆畫面往下捲，捲到底回首頁
+//   B 在首頁連按兩下：開新對話（Hermes 換新 session）
+//   Hermes 要求核准指令時：A 允許一次、B 拒絕
 //   B 長按 1.5 秒放開：切換到清單裡的下一組 Wi-Fi（家裡 ⇄ 手機熱點）
 //   B 長按 5 秒放開：進入設定模式（用手機設定 Wi-Fi、Pi 位址、token）
 // 序列埠：在 serial monitor 打一行字按 Enter，會當成文字訊息送給 Pi（測試用）。
@@ -16,7 +20,8 @@
 #include "wifi_manager.h"
 
 namespace {
-constexpr uint32_t REPLY_TIMEOUT_MS = 180000;  // Pi 上的辨識 + LLM 可能很慢
+constexpr uint32_t IDLE_TIMEOUT_MS = 300000;  // 超過這麼久沒收到任何進度才算逾時（agent 可能跑很久）
+constexpr uint32_t DOUBLE_CLICK_MS = 2500;
 constexpr uint32_t MIN_SPEECH_MS = 400;        // 按太短當作誤觸
 constexpr uint32_t MAX_SPEECH_MS = 30000;      // 跟 Pi 的 stt.max_seconds 一致
 constexpr uint32_t HOLD_SWITCH_MS = 1500;
@@ -26,7 +31,9 @@ int waitingId = -1;  // 等 Pi 回覆中的訊息 id
 uint32_t waitingSince = 0;
 int audioId = -1;    // 錄音串流中的訊息 id
 String said;         // 辨識出來的話
-String companionName = "伴侶";
+String agentName = "Hermes";
+bool approvalPending = false;
+uint32_t lastHomeClickAt = 0;
 String serialLine;
 uint32_t bPressedAt = 0;
 int bHintShown = 0;
@@ -93,9 +100,11 @@ void onPiMessage(JsonDocument& doc) {
   String type = doc["type"] | "";
   int id = doc["id"] | -1;
 
+  if (id >= 0 && id == waitingId) waitingSince = millis();  // 有進度就重新計時
+
   if (type == "welcome") {
-    companionName = doc["companion"] | "伴侶";
-    Serial.printf("[link] welcome，伴侶：%s\n", companionName.c_str());
+    agentName = doc["agent"] | "Hermes";
+    Serial.printf("[link] welcome，agent：%s\n", agentName.c_str());
     if (waitingId < 0 && !recorder.recording() && !ui.isReply()) ui.showHome();
   } else if (type == "transcript") {
     if (id != waitingId) return;
@@ -104,22 +113,35 @@ void onPiMessage(JsonDocument& doc) {
     ui.showThinking(said, "思考中…");
   } else if (type == "thinking") {
     if (id == waitingId && said.isEmpty()) ui.showThinking("", "思考中…");
+  } else if (type == "tool" || type == "status") {
+    if (id != waitingId || approvalPending) return;
+    String what = type == "tool" ? "使用工具：" + String(doc["label"] | "") : String(doc["text"] | "");
+    Serial.println("[agent] " + what);
+    ui.showThinking(said, what);
+  } else if (type == "approval") {
+    if (id != waitingId) return;
+    approvalPending = true;
+    String cmd = doc["command"] | "";
+    Serial.printf("[approval] %s（A 允許 / B 拒絕）\n", cmd.c_str());
+    ui.showApproval(cmd, doc["description"] | "");
   } else if (type == "reply") {
     if (id != waitingId) return;  // 過期的回覆（例如逾時後才到）
     waitingId = -1;
+    approvalPending = false;
     String text = doc["text"] | "";
-    Serial.printf("%s：%s\n", companionName.c_str(), text.c_str());
-    ui.showReply(companionName, text);
+    Serial.printf("%s：%s\n", agentName.c_str(), text.c_str());
+    ui.showReply(agentName, text);
   } else if (type == "error") {
     if (id >= 0 && id != waitingId) return;
     waitingId = -1;
+    approvalPending = false;
     String msg = doc["message"] | "未知錯誤";
     Serial.printf("[error] %s\n", msg.c_str());
     ui.showReply("錯誤", msg);
   } else if (type == "notify") {
     if (recorder.recording()) return;  // 說話中不打斷
     String title = doc["title"] | "";
-    ui.showReply(title.length() ? title : companionName, doc["text"] | "");
+    ui.showReply(title.length() ? title : agentName, doc["text"] | "");
   }
   // transcribing / pong：不用處理（畫面已經是「辨識中…」）
 }
@@ -129,8 +151,30 @@ void onWifiStatus(const String& msg) {
   ui.showInfo("Wi-Fi", msg);
 }
 
+void sendSimple(const char* type, const char* choice = nullptr) {
+  JsonDocument doc;
+  doc["type"] = type;
+  if (waitingId >= 0) doc["id"] = waitingId;
+  if (choice) doc["choice"] = choice;
+  piLink.send(doc);
+}
+
 // ---- 按鍵 ----
 void handleButtons() {
+  // 核准畫面：A 允許一次、B 拒絕
+  if (approvalPending) {
+    bool allow = M5.BtnA.wasPressed();
+    bool deny = M5.BtnB.wasPressed();
+    if (allow || deny) {
+      sendSimple("approval_reply", allow ? "once" : "deny");
+      approvalPending = false;
+      ui.showThinking(said, allow ? "已允許，繼續中…" : "已拒絕，繼續中…");
+      bPressedAt = millis();
+      bHintShown = 3;  // 這次 B 放開不要再觸發別的動作
+    }
+    return;
+  }
+
   // A：按住說話
   if (M5.BtnA.wasPressed()) startSpeaking();
   if (M5.BtnA.wasReleased()) stopSpeaking();
@@ -152,6 +196,10 @@ void handleButtons() {
   }
   if (M5.BtnB.wasReleased() && !recorder.recording()) {
     uint32_t held = millis() - bPressedAt;
+    if (bHintShown == 3) {  // 這次按 B 是用來回覆核准
+      bHintShown = 0;
+      return;
+    }
     if (held >= HOLD_SETUP_MS) {
       runSetupPortal();  // 不會返回
     } else if (held >= HOLD_SWITCH_MS) {
@@ -160,6 +208,18 @@ void handleButtons() {
       wifi.switchNext();
     } else if (ui.isReply()) {
       if (!ui.scrollDown()) ui.showHome();
+    } else if (waitingId < 0 && ui.isHome()) {
+      if (millis() - lastHomeClickAt < DOUBLE_CLICK_MS) {
+        lastHomeClickAt = 0;
+        if (piLink.ready()) {
+          sendSimple("new_session");
+        } else {
+          showNotConnected();
+        }
+      } else {
+        lastHomeClickAt = millis();
+        ui.showHint("再按一次 B：開新對話");
+      }
     } else if (waitingId < 0) {
       ui.showHome();
     }
@@ -232,8 +292,9 @@ void loop() {
     }
   }
 
-  if (waitingId >= 0 && (!piLink.ready() || millis() - waitingSince > REPLY_TIMEOUT_MS)) {
+  if (waitingId >= 0 && (!piLink.ready() || millis() - waitingSince > IDLE_TIMEOUT_MS)) {
     waitingId = -1;
+    approvalPending = false;
     ui.showReply("錯誤", piLink.ready() ? "等太久沒有回覆" : "跟 Pi 的連線斷了");
   }
 

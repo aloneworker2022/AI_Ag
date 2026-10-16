@@ -1,0 +1,38 @@
+# M5StickS3 ↔ Hermes Agent 橋接程式設定
+# 複製成 config.yaml（已被 .gitignore）再改：cp config.example.yaml config.yaml
+
+server:
+  host: 0.0.0.0            # 要讓 Stick 連得進來，一定是 0.0.0.0
+  port: 8000
+
+device:
+  # Stick 連線用的密碼，要跟韌體設定裡的 token 一樣。留空 = 不驗證（不建議）
+  token: "change-me"
+
+hermes:
+  # Hermes Agent 的 API server（在同一台 Pi 上就是 127.0.0.1）
+  base_url: http://127.0.0.1:8642/v1
+  # 要跟 ~/.hermes/.env 裡的 API_SERVER_KEY 一樣
+  api_key: "change-me-hermes-key"
+  model: hermes-agent
+  # 疊加在 Hermes 原本的系統提示上（不會蓋掉它的工具、記憶、skills）
+  system_prompt: >-
+    使用者是透過 M5StickS3 隨身裝置跟你說話：輸入來自語音辨識，可能有錯字或同音字，
+    請依上下文理解。回覆會顯示在 240x135 的小螢幕上：請用繁體中文，
+    簡短口語，不要用 Markdown、表格、程式碼區塊或表情符號，除非使用者要求。
+  # 兩次收到 Hermes 資料之間最多等幾秒（Hermes 每 10 秒會送 keepalive）
+  read_timeout: 120
+  # Hermes 問「這個指令要允許嗎？」時，等 Stick 按鍵回覆的秒數，逾時就拒絕
+  approval_timeout: 120
+
+stt:
+  # 語音轉文字（本地 faster-whisper）。Pi 5 建議 small（中文較準）；嫌慢改 base。
+  # 第一次用會自動下載模型（Pi 要能上網一次）。
+  model: small
+  language: zh
+  compute_type: int8
+  beam_size: 1
+  initial_prompt: "以下是繁體中文的日常對話。"
+  traditional: true        # 用 OpenCC 把結果轉成繁體
+  max_seconds: 30          # 一段話最長幾秒
+  download_root: ""        # 模型存放位置，留空 = 預設快取

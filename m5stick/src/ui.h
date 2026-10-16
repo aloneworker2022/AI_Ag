@@ -20,13 +20,16 @@ class Ui {
   // 長按 B 時的提示（放開會做什麼）
   void showHint(const String& hint);
   void showReply(const String& title, const String& text);
+  // Hermes 要執行需要核准的指令：A 允許一次、B 拒絕
+  void showApproval(const String& command, const String& description);
 
   // 回覆畫面捲動；捲到底回傳 false
   bool scrollDown();
   bool isReply() const { return mode_ == Mode::Reply; }
+  bool isHome() const { return mode_ == Mode::Home; }
 
  private:
-  enum class Mode { Info, Home, Recording, Thinking, Reply };
+  enum class Mode { Info, Home, Recording, Thinking, Reply, Approval };
 
   void render();
   void drawStatusBar();

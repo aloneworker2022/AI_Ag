@@ -1,7 +1,6 @@
 """語音轉文字（本地 faster-whisper）。
 
-裝置傳來 16-bit 單聲道 PCM，這裡轉成文字。模型第一次用到才載入（Pi 5 上 small 約數秒）。
-沒裝 faster-whisper 也不影響網頁聊天，只有語音功能會回報錯誤。
+Stick 傳來 16-bit 單聲道 PCM，這裡轉成文字。模型第一次用到才載入。
 """
 from __future__ import annotations
 
@@ -11,9 +10,9 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from .config import get_config
+from .config import section
 
-log = logging.getLogger("stt")
+log = logging.getLogger("bridge.stt")
 
 # 模型不是 thread-safe，所有辨識排隊在同一條執行緒
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt")
@@ -26,10 +25,6 @@ class SttUnavailable(RuntimeError):
     pass
 
 
-def _cfg() -> dict[str, Any]:
-    return get_config().get("stt") or {}
-
-
 def _load_model() -> Any:
     global _model, _converter
     with _model_lock:
@@ -39,7 +34,7 @@ def _load_model() -> Any:
             from faster_whisper import WhisperModel
         except ImportError as e:
             raise SttUnavailable("Pi 上沒裝 faster-whisper（pip install faster-whisper）") from e
-        cfg = _cfg()
+        cfg = section("stt")
         log.info("loading whisper model %s", cfg.get("model", "small"))
         _model = WhisperModel(
             cfg.get("model", "small"),
@@ -70,7 +65,7 @@ def _to_float_audio(pcm: bytes, rate: int):
 
 def _transcribe_sync(pcm: bytes, rate: int) -> str:
     model = _load_model()
-    cfg = _cfg()
+    cfg = section("stt")
     audio = _to_float_audio(pcm, rate)
     if len(audio) < 16000 * 0.3:  # 不到 0.3 秒，當作沒說話
         return ""
@@ -94,5 +89,5 @@ async def transcribe(pcm: bytes, rate: int = 16000) -> str:
 
 
 def max_bytes(rate: int = 16000) -> int:
-    """一段語音最多收多少 byte（超過就截斷，避免記憶體爆掉）。"""
-    return int(_cfg().get("max_seconds", 30)) * rate * 2
+    """一段語音最多收多少 byte（超過就截斷）。"""
+    return int(section("stt").get("max_seconds", 30)) * rate * 2

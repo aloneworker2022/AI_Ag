@@ -91,6 +91,13 @@ void Ui::showReply(const String& title, const String& text) {
   render();
 }
 
+void Ui::showApproval(const String& command, const String& description) {
+  mode_ = Mode::Approval;
+  title_ = description;
+  body_ = command;
+  render();
+}
+
 bool Ui::scrollDown() {
   if (mode_ != Mode::Reply) return false;
   int total = wrap(body_, W - PAD * 2).size();
@@ -174,7 +181,7 @@ void Ui::render() {
       canvas.drawString("按住 A 說話", PAD, top + LINE_H);
       canvas.setTextColor(COL_DIM, COL_BG);
       canvas.drawString("放開就送出", PAD, top + LINE_H * 2);
-      canvas.drawString("B 長按：換 Wi-Fi / 設定", PAD, H - LINE_H);
+      canvas.drawString("B 兩下：新對話  長按：Wi-Fi", PAD, H - LINE_H);
       break;
 
     case Mode::Recording: {
@@ -199,6 +206,15 @@ void Ui::render() {
       }
       canvas.setTextColor(COL_ACCENT, COL_BG);
       canvas.drawString(status_.c_str(), PAD, H - LINE_H);
+      break;
+
+    case Mode::Approval:
+      canvas.setTextColor(COL_BAD, COL_BG);
+      canvas.drawString("Hermes 要執行：", PAD, top);
+      canvas.setTextColor(COL_TEXT, COL_BG);
+      drawWrapped(body_.length() ? body_ : title_, PAD, top + LINE_H, w, 0, lines - 2);
+      canvas.setTextColor(COL_ACCENT, COL_BG);
+      canvas.drawString("A 允許一次  B 拒絕", PAD, H - LINE_H);
       break;
 
     case Mode::Reply: {

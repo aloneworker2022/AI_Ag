@@ -6,14 +6,14 @@
 #include "settings.h"
 
 #ifndef FW_VERSION
-#define FW_VERSION "0.1.0"
+#define FW_VERSION "0.2.0"
 #endif
 
 Link piLink;
 
 namespace {
 WebSocketsClient ws;
-constexpr int PROTOCOL_VERSION = 1;
+constexpr int PROTOCOL_VERSION = 2;
 
 // xxx.local 用 mDNS 解析成 IP（WebSocket 函式庫本身只會查一般 DNS）
 String resolveHost(const String& host) {

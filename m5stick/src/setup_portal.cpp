@@ -91,7 +91,7 @@ void handleRoot() {
   h += esc(settings.serverHost);
   h += F("' required>Port<input name='port' type='number' min='1' max='65535' value='");
   h += String(settings.serverPort);
-  h += F("'>Token（跟 Pi 的 config.yaml device.token 一樣；留空 = 不改）<input name='token' type='password'>"
+  h += F("'>Token（跟 Pi 的 bridge/config.yaml device.token 一樣；留空 = 不改）<input name='token' type='password'>"
          "裝置名稱<input name='device' maxlength='32' value='");
   h += esc(settings.deviceName);
   h += F("'><button>儲存</button></form></section>");

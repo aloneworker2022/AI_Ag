@@ -1,27 +1,16 @@
-# M5StickS3 隨身終端
+# M5StickS3 韌體
 
-讓 M5StickS3 透過 Wi-Fi 跟 Raspberry Pi 5 上的 AI 伴侶對話。
+按住 A 說話，聲音串流到 Pi 上的 `bridge/`，由 Whisper 轉文字後交給 Hermes Agent，
+回覆文字顯示在螢幕上。整體架構與 Pi 端安裝見[根目錄 README](../README.md)。
 
-目前是**第 1 階段：用說的，Pi 回覆文字**。按住 A 對 Stick 說話，Pi 用本地
-Whisper 辨識成文字交給 AI，回覆顯示在 Stick 螢幕上。
-之後依序加入：語音回覆（Stick 念出來）→ 圖片 → 感測器 / GPIO。
-所有功能都走同一條 WebSocket（`ws://<pi>:8000/ws/device`），後面的階段只會新增訊息類型。
+## 1. 先確認 Pi 端
 
-## 1. Pi 端準備
+Pi 上的 bridge 要先跑起來（`python -m bridge`），並記下：
 
-```bash
-pip install -r requirements.txt      # 包含 faster-whisper（語音辨識）與 opencc（轉繁體）
-# config.yaml 裡把 device.token 改成你自己的密碼
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
-```
+- Pi 的 IP（建議在路由器固定）
+- `bridge/config.yaml` 裡的 `device.token`
 
-一定要加 `--host 0.0.0.0`，不然 Stick 連不進來。
-建議在路由器幫 Pi 固定 IP。
-
-語音辨識設定在 `config.yaml` 的 `stt:`。預設模型 `small`，第一次說話時會自動下載
-（Pi 要能上網一次），之後完全離線。Pi 5 上一句話大約要幾秒；嫌慢可以改成 `base`。
-
-## 2. 燒錄韌體
+## 2. 燒錄
 
 需要電腦裝 [PlatformIO](https://platformio.org/)（VS Code 外掛或 `pip install platformio`）。
 
@@ -62,26 +51,29 @@ Stick 最多記 6 組 Wi-Fi，**排越前面越優先**。開機時會掃描附�
 |---|---|
 | **A 按住** | 說話；放開就送出（太短當誤觸，最長 30 秒會自動送出） |
 | B 單按 | 回覆太長時往下捲，捲到底回首頁 |
+| **B 在首頁連按兩下** | 開新對話（Hermes 換一個新 session） |
 | **B 按住 1.5 秒放開** | 切到清單裡的下一組 Wi-Fi |
 | **B 按住 5 秒放開** | 進設定模式 |
+| 核准畫面：**A / B** | Hermes 要執行需要核准的指令時：A 允許一次、B 拒絕 |
 
 按住 B 時螢幕下方會提示「放開會做什麼」。
 
-畫面流程：聆聽中（秒數＋音量條）→ 辨識中… → 顯示你說的話＋思考中… → 回覆。
+畫面流程：聆聽中（秒數＋音量條）→ 辨識中… → 你說的話＋思考中 →
+Hermes 用工具時顯示「使用工具：…」→ 回覆。
 
 狀態列：左邊是目前 Wi-Fi，右邊圓點綠色 = 已連上 Pi、紅色 = 沒連上，最右邊是電量。
 
-在 serial monitor 打一行字按 Enter，會當成文字訊息送出（不用說話也能測試）。
+在 serial monitor 打一行字按 Enter，會當成文字訊息送出（不用說話也能測試；打 `/new` 開新對話）。
 
 ### 從 Pi 推訊息到 Stick 螢幕
 
 ```bash
 curl http://<pi>:8000/devices          # 看在線裝置
 curl -X POST http://<pi>:8000/devices/stick/notify \
-     -H 'Content-Type: application/json' -d '{"title":"小夜","text":"該睡覺囉"}'
+     -H 'Content-Type: application/json' -d '{"title":"提醒","text":"該休息囉"}'
 ```
 
-## 5. 協定（v1）
+## 5. 協定（v2）
 
 文字訊息都是 JSON：`{"type": "...", ...}`。
 二進位訊息一律屬於「最近一個 `*_start`」開啟的串流（目前只有語音）。
@@ -89,21 +81,23 @@ curl -X POST http://<pi>:8000/devices/stick/notify \
 | 方向 | type | 欄位 | 說明 |
 |---|---|---|---|
 | Stick → Pi | `hello` | `device`, `fw`, `proto`, `token` | 連上後第一則，必須是它；token 錯會被斷線（code 4401） |
-| Pi → Stick | `welcome` | `proto`, `companion` | 驗證通過 |
+| Pi → Stick | `welcome` | `proto`, `agent` | 驗證通過 |
 | Stick → Pi | `audio_start` | `id`, `format`=`pcm_s16le`, `rate`=16000 | 開始說話 |
 | Stick → Pi | （二進位） | 16-bit little-endian 單聲道 PCM | 邊錄邊傳，每段 32 ms |
 | Stick → Pi | `audio_end` / `audio_cancel` | `id` | 說完 / 誤觸取消 |
 | Pi → Stick | `transcribing` | `id` | 辨識中 |
 | Pi → Stick | `transcript` | `id`, `text` | 辨識結果（你說了什麼） |
 | Stick → Pi | `chat` | `id`, `text` | 直接傳文字（序列埠測試用） |
-| Pi → Stick | `thinking` | `id` | AI 正在想 |
-| Pi → Stick | `reply` | `id`, `text` | AI 回覆 |
+| Pi → Stick | `thinking` | `id` | 已送給 Hermes |
+| Pi → Stick | `tool` | `id`, `label` | Hermes 正在用某個工具 |
+| Pi → Stick | `status` | `id`, `text` | Hermes 狀態（例如等待模型） |
+| Pi → Stick | `approval` | `id`, `command`, `description` | 需要核准的指令 |
+| Stick → Pi | `approval_reply` | `id`, `choice`=`once`/`deny` | 核准結果 |
+| Pi → Stick | `reply` | `id`, `text` | Hermes 的回覆 |
+| Stick → Pi | `new_session` | | 開新對話 |
 | Pi → Stick | `notify` | `title`, `text` | Pi 主動推的訊息 |
-| Pi → Stick | `error` | `id`?, `message` | 錯誤（例如「沒聽清楚，再說一次」） |
+| Pi → Stick | `error` | `id`?, `message` | 錯誤（例如「沒聽清楚，再說一次」「連不到 Hermes」） |
 | 雙向 | `ping` / `pong` | `t` | 應用層心跳（另外也有 WebSocket ping） |
-
-Pi 主動對裝置下指令（之後的 `sensor_read`、`gpio_write` 等）會帶 `id`，
-裝置回覆時帶 `re: <id>`，後端用 `device.hub.request()` 等待結果。
 
 ## 檔案
 

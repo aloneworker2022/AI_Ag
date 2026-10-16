@@ -1,83 +1,89 @@
-# 本地 AI 伴侶 — md 記憶 ＋ Skill ＋ 做夢系統
+# M5StickS3 × Hermes Agent
 
-一個**簡單、透明、純本地**的 AI 伴侶。沒有 Telegram、沒有外部 API 串接、沒有花俏功能。
-畫面是日式文字冒險（視覺小說）排版：中間人物立繪、頭上對話框、下方輸入框。
+對著 M5StickS3 說話，由 [Hermes Agent](https://github.com/NousResearch/hermes-agent)
+（Nous Research 的開源 agent）回答，回覆文字顯示在 Stick 螢幕上。
 
-## 三個核心
+```
+M5StickS3 ──Wi-Fi(WebSocket)──▶ Raspberry Pi 5                       你的電腦
+ 按住 A 說話                     ├ bridge（本專案）                    ├ Ollama / LM Studio
+ 螢幕顯示回覆                    │  ├ Whisper 語音轉文字                │  （提供模型）
+                                │  └ 轉送給 Hermes ──▶ Hermes Agent ──▶┘
+                                │                     （記憶、skills、工具）
+```
 
-1. **純 Markdown 記憶** — 所有記憶都是 `memory/` 底下的 `.md` 檔，你隨時能在
-   網頁的記憶面板或直接用編輯器打開來看、改、刪。分四類：
-   `characters/`（人物）、`scenes/`（場景）、`events/`（事件）、`facts/`（關於你的事實）。
-2. **Skill 系統** — 每個 skill 是一個 md（`skills/`）。用關鍵字觸發：
-   - `persona` 型：命中時改變說話風格／情境（body 注入 prompt）
-   - `tool` 型：命中時執行小工具（`backend/skills_impl.py`），如查時間、算式
-3. **做夢系統** — 固定睡覺時段（預設 23:00–07:00）會自動呼叫你既有的 **ComfyUI**，
-   把聊天中出現過、還沒畫過的人物／場景／事件畫出來。下次再聊到同一對象，
-   畫面就會貼出當初夢到的圖。
+| 角色 | 跑在哪 | 做什麼 |
+|---|---|---|
+| `m5stick/` 韌體 | M5StickS3 | 錄音串流、顯示回覆、多組 Wi-Fi |
+| `bridge/` | Raspberry Pi 5 | 收 Stick 的語音 → Whisper 轉文字 → 呼叫 Hermes → 回傳文字 |
+| Hermes Agent | Raspberry Pi 5 | agent 本體：對話歷史、長期記憶、skills、工具 |
+| 模型伺服器 | 你的電腦 | Ollama / LM Studio 等 OpenAI 相容服務，給 Hermes 用 |
 
-## 前置需求
+## 1. 電腦：準備模型
 
-- [Ollama](https://ollama.com/) 在本機跑，且已 `ollama pull` 了一個模型
-- [ComfyUI](https://github.com/comfyanonymous/ComfyUI) 在本機跑（做夢用，預設 `127.0.0.1:8188`）
-- Python 3.10+
-
-## 安裝與啟動
+以 Ollama 為例（LM Studio、vLLM、llama.cpp 也可以，只要是 OpenAI 相容 API）：
 
 ```bash
-pip install -r requirements.txt
-uvicorn backend.main:app --reload
+ollama pull qwen2.5:14b            # 挑一個支援 tool calling、你的顯卡跑得動的模型
+OLLAMA_HOST=0.0.0.0 OLLAMA_CONTEXT_LENGTH=64000 ollama serve
 ```
 
-開瀏覽器到 http://127.0.0.1:8000 即可。
+- `OLLAMA_HOST=0.0.0.0`：讓 Pi 連得進來（預設只聽本機）。
+- `OLLAMA_CONTEXT_LENGTH=64000`：**Hermes 要求至少 64K context**，Ollama 預設只有 4K，
+  不設會被 Hermes 拒絕。
+- 建議在路由器幫電腦固定 IP，並確認防火牆允許 11434 port。
 
-想讓區網內其他裝置（手機、M5StickS3）連進來，改用 `--host 0.0.0.0`。
-
-## M5StickS3 隨身終端
-
-`m5stick/` 是 M5StickS3 的韌體：按住按鍵說話，Pi 用本地 Whisper 辨識後交給伴侶，
-回覆文字顯示在 Stick 上。透過 Wi-Fi + WebSocket（`/ws/device`）連線，
-支援多組 Wi-Fi（家裡 / 手機熱點）自動選擇與手動切換。設定與燒錄見
-[m5stick/README.md](m5stick/README.md)。
-
-## 設定
-
-全部在 `config.yaml`：
-
-- `ollama.model`：改成你 `ollama list` 裡有的模型名
-- `comfyui.checkpoint`：想指定 checkpoint 就填，留空用 workflow 範本內的
-- `comfyui.workflow`：可換成你自己從 ComfyUI 匯出的 **API 格式** workflow
-  （慣例：正向提示詞節點 title 含 `Positive`）
-- `dream.sleep_start` / `sleep_end`：睡覺時段
-
-## 手動做夢（測試用）
-
-不用等到睡覺時間，可直接打：
+## 2. Pi：安裝 Hermes Agent
 
 ```bash
-curl -X POST http://127.0.0.1:8000/sleep
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+hermes model
+#   選 "Custom endpoint (self-hosted / VLLM / etc.)"
+#   URL 填 http://<電腦IP>:11434/v1，API key 留空，模型名稱填 qwen2.5:14b
 ```
 
-它會把目前還沒畫過的對象畫一批，圖存在 `dreams/images/`，
-關聯記在 `dreams/index.json`。
+開啟 API server，在 `~/.hermes/.env` 加上：
 
-## API 一覽
-
-| 方法 | 路徑 | 用途 |
-|------|------|------|
-| POST | `/chat` | 對話 |
-| GET  | `/status` | 睡眠/做夢狀態 |
-| POST | `/sleep` | 手動觸發做夢 |
-| GET  | `/dreams` | 夢境畫廊 |
-| GET/PUT/DELETE | `/memory/{path}` | 瀏覽/編輯/刪除記憶 |
-| GET  | `/skills` | skill 清單 |
-
-## 目錄
-
+```bash
+API_SERVER_ENABLED=true
+API_SERVER_KEY=換成一組長一點的密碼
 ```
-backend/    FastAPI 後端
-memory/     純 md 記憶（可看可改）
-skills/     skill 模組（md）
-dreams/     做夢產出的圖 + 關聯
-frontend/   視覺小說網頁
-config.yaml 設定
+
+然後啟動 `hermes gateway`，看到 `API server listening on http://127.0.0.1:8642` 就成功了。
+bridge 跟 Hermes 在同一台 Pi，所以 Hermes 只聽 127.0.0.1 就好，不用對外開。
+
+測試：
+
+```bash
+curl http://127.0.0.1:8642/v1/chat/completions \
+  -H "Authorization: Bearer <API_SERVER_KEY>" -H "Content-Type: application/json" \
+  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"你好"}]}'
 ```
+
+## 3. Pi：啟動 bridge
+
+```bash
+cd AI_Ag
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r bridge/requirements.txt
+cp bridge/config.example.yaml bridge/config.yaml
+#   改 hermes.api_key（= API_SERVER_KEY）和 device.token（Stick 用的密碼）
+python -m bridge
+```
+
+- 第一次說話時會下載 Whisper 模型（`stt.model`，預設 `small`），Pi 要能上網一次。
+- 開機自動啟動：見 `bridge/systemd/m5stick-bridge.service`。
+- 檢查：`curl http://<PiIP>:8000/health`、`curl http://<PiIP>:8000/devices`。
+
+## 4. Stick：燒錄韌體
+
+見 [m5stick/README.md](m5stick/README.md)：燒錄、Wi-Fi 設定（多組、手機熱點切換）、按鍵操作、協定。
+
+## 用起來
+
+- **按住 A 說話**，放開送出 → 螢幕顯示「辨識中」→ 你說的話 →
+  Hermes 用了哪些工具（例如「使用工具：web_search」）→ 回覆。
+- Hermes 要執行需要核准的指令時，Stick 會顯示指令內容：**A 允許一次、B 拒絕**（2 分鐘沒按就拒絕）。
+- 對話會一直接續（Hermes 記得前面講過什麼）。想重新開始：首頁**連按兩下 B**，
+  或說「開新對話」。
+- 從 Pi 推訊息到 Stick：
+  `curl -X POST http://<PiIP>:8000/devices/stick/notify -H 'Content-Type: application/json' -d '{"text":"該休息了"}'`

@@ -1,0 +1,18 @@
+# 開機自動啟動 bridge。安裝：
+#   sudo cp bridge/systemd/m5stick-bridge.service /etc/systemd/system/
+#   （先把下面的 User 和路徑改成你的）
+#   sudo systemctl daemon-reload && sudo systemctl enable --now m5stick-bridge
+[Unit]
+Description=M5StickS3 <-> Hermes Agent bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/AI_Ag
+ExecStart=/home/pi/AI_Ag/.venv/bin/python -m bridge
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

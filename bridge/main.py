@@ -19,7 +19,7 @@ from typing import Any, Awaitable, Callable
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from . import hermes, stt, tts
+from . import hermes, stt
 from .config import STATE_FILE, section
 
 log = logging.getLogger("bridge")
@@ -84,15 +84,12 @@ class Device:
     outbox: list[dict[str, Any]] = field(default_factory=list)
     # 背景跑的辨識 / Hermes 工作，不跟著連線結束
     tasks: set[asyncio.Task] = field(default_factory=set)
-    # 正在念的語音回覆（新的一輪開始或 Stick 按停就取消）
-    tts_task: asyncio.Task | None = None
 
     @property
     def online(self) -> bool:
         return self.ws is not None
 
-    async def send(self, payload: dict[str, Any], queue: bool = True) -> None:
-        """送 JSON。離線時，有 id 的訊息（queue=True）先存起來，重連後補送。"""
+    async def send(self, payload: dict[str, Any]) -> None:
         async with self._send_lock:
             ws = self.ws
             if ws is not None:
@@ -101,25 +98,9 @@ class Device:
                     return
                 except Exception:  # 連線剛好斷了
                     log.info("%s: send failed, queueing %s", self.name, payload.get("type"))
-            if queue and payload.get("id") is not None:
+            if payload.get("id") is not None:
                 self.outbox.append(payload)
                 del self.outbox[:-OUTBOX_MAX]
-
-    async def send_bytes(self, data: bytes) -> bool:
-        """送二進位（語音）。離線就丟掉，回傳 False。"""
-        async with self._send_lock:
-            if self.ws is None:
-                return False
-            try:
-                await self.ws.send_bytes(data)
-                return True
-            except Exception:
-                return False
-
-    def stop_tts(self) -> None:
-        if self.tts_task and not self.tts_task.done():
-            self.tts_task.cancel()
-        self.tts_task = None
 
     async def flush(self) -> None:
         pending, self.outbox = self.outbox, []
@@ -183,9 +164,6 @@ async def _respond(dev: Device, msg_id: Any, get_text: Callable[[], Awaitable[st
             text, session_id=session_id, session_key=session_key,
             cb=hermes.TurnCallbacks(on_tool=on_tool, on_status=on_status, on_approval=on_approval))
         await dev.send({"type": "reply", "id": msg_id, "text": reply or "（Hermes 沒有回覆文字）"})
-        if reply and tts.enabled() and dev.online:
-            dev.stop_tts()
-            dev.tts_task = asyncio.create_task(_speak(dev, msg_id, reply))
     except (hermes.HermesError, stt.SttUnavailable) as e:
         await dev.send({"type": "error", "id": msg_id, "message": str(e)})
     except Exception as e:
@@ -193,45 +171,6 @@ async def _respond(dev: Device, msg_id: Any, get_text: Callable[[], Awaitable[st
         await dev.send({"type": "error", "id": msg_id, "message": f"處理失敗：{e}"})
     finally:
         dev.busy = False
-
-
-TTS_CHUNK_BYTES = 4096   # 每段 128 ms（16 kHz、16-bit）
-TTS_LEAD_S = 0.8         # 最多比播放進度超前多少秒，避免塞爆 Stick 的緩衝
-
-
-async def _speak(dev: Device, msg_id: Any, text: str) -> None:
-    """把回覆念出來：一邊合成一邊照播放速度送給 Stick。"""
-    loop = asyncio.get_running_loop()
-    rate = tts.sample_rate()
-    bytes_per_s = rate * 2
-    started = False
-    play_end = 0.0  # 預估 Stick 播完目前已送出內容的時間點
-    try:
-        async for pcm in tts.stream(text):
-            if not started:
-                await dev.send({"type": "audio_reply_start", "id": msg_id, "rate": rate,
-                                "format": "pcm_s16le"}, queue=False)
-                started = True
-            for i in range(0, len(pcm), TTS_CHUNK_BYTES):
-                part = pcm[i:i + TTS_CHUNK_BYTES]
-                now = loop.time()
-                if play_end - now > TTS_LEAD_S:
-                    await asyncio.sleep(play_end - now - TTS_LEAD_S)
-                    now = loop.time()
-                if not await dev.send_bytes(part):
-                    return  # 離線了
-                play_end = max(play_end, now) + len(part) / bytes_per_s
-    except asyncio.CancelledError:
-        raise
-    except Exception as e:
-        log.warning("tts failed: %s", e)
-        await dev.send({"type": "status", "id": msg_id, "text": f"語音失敗：{e}"[:80]}, queue=False)
-    finally:
-        if started:
-            try:
-                await asyncio.shield(dev.send({"type": "audio_reply_end", "id": msg_id}, queue=False))
-            except Exception:
-                pass
 
 
 async def _handle_chat(dev: Device, msg: dict[str, Any]) -> None:
@@ -286,13 +225,11 @@ async def _on_text(dev: Device, msg: dict[str, Any]) -> None:
     if mtype == "ping":
         await dev.send({"type": "pong", "t": msg.get("t")})
     elif mtype == "chat":
-        dev.stop_tts()
         _spawn(tasks, _handle_chat(dev, msg))
     elif mtype == "audio_start":
         if msg.get("format", "pcm_s16le") != "pcm_s16le":
             await dev.send({"type": "error", "id": msg.get("id"), "message": "只支援 pcm_s16le"})
             return
-        dev.stop_tts()  # 使用者開始說話，就不要再念上一句了
         dev.audio_id = msg.get("id")
         dev.audio_rate = int(msg.get("rate") or 16000)
         dev.audio_buf = bytearray()
@@ -304,8 +241,6 @@ async def _on_text(dev: Device, msg: dict[str, Any]) -> None:
         _spawn(tasks, _handle_voice(dev, msg_id, pcm, rate))
     elif mtype == "audio_cancel":
         dev.audio_id, dev.audio_buf = None, bytearray()
-    elif mtype == "tts_stop":
-        dev.stop_tts()
     elif mtype == "approval_reply":
         if dev.approval and not dev.approval.done():
             dev.approval.set_result("once" if msg.get("choice") == "once" else "deny")
@@ -382,7 +317,6 @@ async def device_ws(ws: WebSocket) -> None:
         # 等核准的指令則交給 approval_timeout 處理。
         if dev.ws is ws:
             dev.ws = None
-            dev.stop_tts()  # 離線了就不用再念
         log.info("device disconnected: %s (進行中 %d 項)", name, len(dev.tasks))
 
 

@@ -69,15 +69,12 @@ curl http://127.0.0.1:8642/v1/chat/completions \
 ```bash
 cd AI_Ag
 python3 -m venv .venv && . .venv/bin/activate
-sudo apt install ffmpeg               # 語音回覆要用（MP3 轉 PCM）
 pip install -r bridge/requirements.txt
 cp bridge/config.example.yaml bridge/config.yaml
 #   改 hermes.api_key（= API_SERVER_KEY）和 device.token（Stick 用的密碼）
 python -m bridge
 ```
 
-- 語音回覆用 edge-tts（微軟線上語音，免費、要網路），聲音在 `tts.voice` 設定，預設曉臻；
-  `tts.enabled: false` 可以關掉只看文字。
 - 第一次說話時會下載 Whisper 模型（`stt.model`，預設 `small`），Pi 要能上網一次。
 - 開機自動啟動：見 `bridge/systemd/m5stick-bridge.service`。
 - 檢查：`curl http://<PiIP>:3799/health`、`curl http://<PiIP>:3799/devices`。
@@ -89,7 +86,7 @@ python -m bridge
 ## 用起來
 
 - **按住 A 說話**，放開送出 → 螢幕顯示「辨識中」→ 你說的話 →
-  Hermes 用了哪些工具（例如「使用工具：web_search」）→ 回覆（同時念出來，按 A 可打斷）。
+  Hermes 用了哪些工具（例如「使用工具：web_search」）→ 回覆。
 - Hermes 要執行需要核准的指令時，Stick 會顯示指令內容：**A 允許一次、B 拒絕**（2 分鐘沒按就拒絕）。
 - 對話會一直接續（Hermes 記得前面講過什麼）。想重新開始：首頁**連按兩下 B**，
   或說「開新對話」。

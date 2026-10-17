@@ -7,7 +7,6 @@
 //   B 單按：回覆畫面往下捲，捲到底回首頁
 //   B 在首頁連按兩下：開新對話（Hermes 換新 session）
 //   Hermes 要求核准指令時：A 允許一次、B 拒絕
-//   念回覆時按 A：停止播放（按住就直接開始說下一句）
 //   B 長按 1.5 秒放開：切換到清單裡的下一組 Wi-Fi（家裡 ⇄ 手機熱點）
 //   B 長按 5 秒放開：進入設定模式（用手機設定 Wi-Fi、Pi 位址、token）
 // 序列埠：在 serial monitor 打一行字按 Enter，會當成文字訊息送給 Pi（測試用）。
@@ -15,7 +14,6 @@
 #include <WiFi.h>
 
 #include "link.h"
-#include "player.h"
 #include "recorder.h"
 #include "settings.h"
 #include "setup_portal.h"
@@ -35,7 +33,6 @@ int waitingId = -1;  // 等 Pi 回覆中的訊息 id
 uint32_t waitingSince = 0;
 int audioId = -1;    // 錄音串流中的訊息 id
 String said;         // 辨識出來的話
-int lastReplyId = -1;  // 最近一次顯示的回覆，語音回覆只播這一則
 String agentName = "Hermes";
 bool approvalPending = false;
 uint32_t lastHomeClickAt = 0;
@@ -71,7 +68,6 @@ void streamChunk(const int16_t* data, size_t n) {
 }
 
 void startSpeaking() {
-  if (player.active()) player.stop();  // 正在念回覆：先停掉（Pi 收到 audio_start 也會停）
   if (waitingId >= 0) return;  // 上一句還沒回
   if (!piLink.ready()) {
     showNotConnected();
@@ -134,7 +130,6 @@ void onPiMessage(JsonDocument& doc) {
     if (id != waitingId) return;  // 過期的回覆（例如逾時後才到）
     waitingId = -1;
     approvalPending = false;
-    lastReplyId = id;
     String text = doc["text"] | "";
     Serial.printf("%s：%s\n", agentName.c_str(), text.c_str());
     ui.showReply(agentName, text);
@@ -145,12 +140,6 @@ void onPiMessage(JsonDocument& doc) {
     String msg = doc["message"] | "未知錯誤";
     Serial.printf("[error] %s\n", msg.c_str());
     ui.showReply("錯誤", msg);
-  } else if (type == "audio_reply_start") {
-    if (id != lastReplyId || recorder.recording()) return;
-    player.start(id, doc["rate"] | 16000);
-    Serial.println("[voice] 開始播放回覆");
-  } else if (type == "audio_reply_end") {
-    player.finish(id);
   } else if (type == "notify") {
     if (recorder.recording()) return;  // 說話中不打斷
     String title = doc["title"] | "";
@@ -264,14 +253,12 @@ void setup() {
                 psramFound() ? "有" : "沒有", ESP.getPsramSize());
 
   recorder.begin();
-  player.begin();
   Serial.printf("[boot] 麥克風：%s\n", M5.Mic.isEnabled() ? "OK" : "失敗");
 
   settingsLoad();
   if (settings.networkCount == 0) runSetupPortal();  // 第一次用：直接進設定
 
   piLink.onMessage(onPiMessage);
-  piLink.onBinary([](const uint8_t* data, size_t len) { player.feed(data, len); });
   wifi.begin(onWifiStatus);
 }
 
@@ -309,7 +296,7 @@ void loop() {
 
   // Wi-Fi 省電：待機時開著省電；說話、等回覆時暫時關掉，連線比較穩
   static bool sleepOn = true;
-  bool busy = recorder.recording() || waitingId >= 0 || player.active();
+  bool busy = recorder.recording() || waitingId >= 0;
   if (busy == sleepOn && wifi.connected()) {
     sleepOn = !busy;
     WiFi.setSleep(sleepOn);

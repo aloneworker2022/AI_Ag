@@ -15,6 +15,7 @@ struct Settings {
   String deviceName;
   String serverHost;
   uint16_t serverPort = 3799;
+  uint8_t volume = 160;  // 喇叭音量 0–255
   String token;
   NetworkEntry networks[MAX_NETWORKS];
   int networkCount = 0;

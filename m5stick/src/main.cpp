@@ -8,6 +8,7 @@
 //   B 在首頁連按兩下：開新對話（Hermes 換新 session）
 //   Hermes 要求核准指令時：A 允許一次、B 拒絕
 //   語音模式下 AI 說話（或還在想）時按住 A：直接插話
+//   側邊電源鍵單按：喇叭音量往上一格（共 5 格，最大後回到最小）；長按仍是關機
 //   B 長按 1.5 秒放開：切換到清單裡的下一組 Wi-Fi（家裡 ⇄ 手機熱點）
 //   B 長按 5 秒放開：進入設定模式（用手機設定 Wi-Fi、Pi 位址、token）
 // 序列埠：在 serial monitor 打一行字按 Enter，會當成文字訊息送給 Pi（測試用）。
@@ -243,13 +244,42 @@ void handleButtons() {
   }
 }
 
+// 音量 5 格
+constexpr uint8_t VOLUME_LEVELS[] = {48, 96, 144, 200, 255};
+constexpr int VOLUME_LEVEL_COUNT = sizeof(VOLUME_LEVELS) / sizeof(VOLUME_LEVELS[0]);
+
+int volumeLevelIndex() {
+  for (int i = VOLUME_LEVEL_COUNT - 1; i >= 0; i--) {
+    if (settings.volume >= VOLUME_LEVELS[i]) return i;
+  }
+  return 0;
+}
+
+void setVolume(uint8_t v) {
+  settings.volume = v;
+  settingsSave();
+  player.setVolume(v);
+  ui.showHint("音量 " + String(volumeLevelIndex() + 1) + "/" + String(VOLUME_LEVEL_COUNT));
+  Serial.printf("[vol] %u\n", v);
+}
+
+void handleVolumeButton() {
+  if (!M5.BtnPWR.wasClicked()) return;
+  int next = (volumeLevelIndex() + 1) % VOLUME_LEVEL_COUNT;
+  setVolume(VOLUME_LEVELS[next]);
+}
+
 void handleSerial() {
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\r') continue;
     if (c == '\n') {
       serialLine.trim();
-      if (serialLine.length()) sendText(serialLine);
+      if (serialLine.startsWith("/vol ")) {  // 序列埠測試：/vol 0~255
+        setVolume(constrain(serialLine.substring(5).toInt(), 0, 255));
+      } else if (serialLine.length()) {
+        sendText(serialLine);
+      }
       serialLine = "";
     } else if (serialLine.length() < 500) {
       serialLine += c;
@@ -359,6 +389,7 @@ void loop() {
   }
 
   handleButtons();
+  handleVolumeButton();
   handleSerial();
   if (!recorder.recording()) delay(5);
 }

@@ -70,6 +70,7 @@ struct Settings {
   String deviceName;
   String serverHost;
   uint16_t serverPort = 3799;
+  uint8_t volume = 160;  // 喇叭音量 0–255
   String token;
   NetworkEntry networks[MAX_NETWORKS];
   int networkCount = 0;
@@ -107,6 +108,7 @@ void loadDefaults() {
   settings.deviceName = DEFAULT_DEVICE_NAME;
   settings.serverHost = DEFAULT_SERVER_HOST;
   settings.serverPort = DEFAULT_SERVER_PORT;
+  settings.volume = 160;
   settings.token = DEFAULT_TOKEN;
   static const DefaultNet defaults[] = DEFAULT_NETWORKS;
   for (const auto& n : defaults) {
@@ -165,6 +167,7 @@ void settingsLoad() {
   settings.deviceName = doc["device"] | DEFAULT_DEVICE_NAME;
   settings.serverHost = doc["host"] | DEFAULT_SERVER_HOST;
   settings.serverPort = doc["port"] | DEFAULT_SERVER_PORT;
+  settings.volume = doc["vol"] | 160;
   settings.token = doc["token"] | DEFAULT_TOKEN;
   for (JsonObject n : doc["nets"].as<JsonArray>()) {
     settings.addNetwork(n["ssid"] | "", n["pass"] | "", n["host"] | "");
@@ -176,6 +179,7 @@ void settingsSave() {
   doc["device"] = settings.deviceName;
   doc["host"] = settings.serverHost;
   doc["port"] = settings.serverPort;
+  doc["vol"] = settings.volume;
   doc["token"] = settings.token;
   JsonArray nets = doc["nets"].to<JsonArray>();
   for (int i = 0; i < settings.networkCount; i++) {
@@ -676,6 +680,7 @@ class Player {
   void finish(int id);                         // Pi 說這段送完了，播完就結束
   void stop();                                 // 立刻停止（例如使用者按 A 要說話）
   void loop();  // 由背景工作呼叫
+  void setVolume(uint8_t volume);  // 0–255，播放中也能調
 
   bool active() const { return active_; }
   int id() const { return id_; }
@@ -701,7 +706,6 @@ namespace {
 constexpr size_t PLAY_CHUNK = 2048;
 constexpr size_t PLAY_POOL = 16;
 constexpr uint8_t PLAY_CH = 0;           // 喇叭聲道
-constexpr uint8_t PLAY_VOLUME = 160;     // 0–255
 int16_t playPool[PLAY_POOL][PLAY_CHUNK];
 size_t playLen[PLAY_POOL];
 QueueHandle_t playFreeQ = nullptr;      // 可以拿來裝資料的緩衝（喇叭播完放回來）
@@ -766,7 +770,7 @@ void Player::start(int id, uint32_t sampleRate) {
   M5.Mic.end();
   M5.Speaker.setBufferReleaseCallback(nullptr, onPlayReleased);
   M5.Speaker.begin();
-  M5.Speaker.setVolume(PLAY_VOLUME);
+  M5.Speaker.setVolume(settings.volume);
   active_ = true;
 }
 
@@ -848,6 +852,11 @@ void Player::end() {
   active_ = false;
   finished_ = false;
   id_ = -1;
+}
+
+void Player::setVolume(uint8_t volume) {
+  // 正在播就馬上套用；沒在播，下次 start() 會用 settings.volume
+  if (active_) M5.Speaker.setVolume(volume);
 }
 
 // ===== wifi_manager.h =====
@@ -1048,7 +1057,7 @@ extern Link piLink;
 
 // ===== link.cpp =====
 #ifndef FW_VERSION
-#define FW_VERSION "0.4.0"
+#define FW_VERSION "0.4.1"
 #endif
 
 Link piLink;
@@ -1260,6 +1269,8 @@ void handleRoot() {
   h += esc(settings.serverHost);
   h += F("' required>Port<input name='port' type='number' min='1' max='65535' value='");
   h += String(settings.serverPort);
+  h += F("'>喇叭音量（0–255，平常也可以按 Stick 側邊電源鍵切換）<input name='vol' type='number' min='0' max='255' value='");
+  h += String(settings.volume);
   h += F("'>Token（跟 Pi 的 bridge/config.yaml device.token 一樣；留空 = 不改）<input name='token' type='password'>"
          "裝置名稱<input name='device' maxlength='32' value='");
   h += esc(settings.deviceName);
@@ -1298,6 +1309,7 @@ void handleServer() {
   if (host.length()) settings.serverHost = host;
   long port = server.arg("port").toInt();
   if (port > 0 && port < 65536) settings.serverPort = port;
+  if (server.arg("vol").length()) settings.volume = constrain(server.arg("vol").toInt(), 0, 255);
   if (server.arg("token").length()) settings.token = server.arg("token");
   String dev = server.arg("device");
   dev.trim();
@@ -1377,6 +1389,7 @@ void runSetupPortal() {
 //   B 在首頁連按兩下：開新對話（Hermes 換新 session）
 //   Hermes 要求核准指令時：A 允許一次、B 拒絕
 //   語音模式下 AI 說話（或還在想）時按住 A：直接插話
+//   側邊電源鍵單按：喇叭音量往上一格（共 5 格，最大後回到最小）；長按仍是關機
 //   B 長按 1.5 秒放開：切換到清單裡的下一組 Wi-Fi（家裡 ⇄ 手機熱點）
 //   B 長按 5 秒放開：進入設定模式（用手機設定 Wi-Fi、Pi 位址、token）
 // 序列埠：在 serial monitor 打一行字按 Enter，會當成文字訊息送給 Pi（測試用）。
@@ -1603,13 +1616,42 @@ void handleButtons() {
   }
 }
 
+// 音量 5 格
+constexpr uint8_t VOLUME_LEVELS[] = {48, 96, 144, 200, 255};
+constexpr int VOLUME_LEVEL_COUNT = sizeof(VOLUME_LEVELS) / sizeof(VOLUME_LEVELS[0]);
+
+int volumeLevelIndex() {
+  for (int i = VOLUME_LEVEL_COUNT - 1; i >= 0; i--) {
+    if (settings.volume >= VOLUME_LEVELS[i]) return i;
+  }
+  return 0;
+}
+
+void setVolume(uint8_t v) {
+  settings.volume = v;
+  settingsSave();
+  player.setVolume(v);
+  ui.showHint("音量 " + String(volumeLevelIndex() + 1) + "/" + String(VOLUME_LEVEL_COUNT));
+  Serial.printf("[vol] %u\n", v);
+}
+
+void handleVolumeButton() {
+  if (!M5.BtnPWR.wasClicked()) return;
+  int next = (volumeLevelIndex() + 1) % VOLUME_LEVEL_COUNT;
+  setVolume(VOLUME_LEVELS[next]);
+}
+
 void handleSerial() {
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\r') continue;
     if (c == '\n') {
       serialLine.trim();
-      if (serialLine.length()) sendText(serialLine);
+      if (serialLine.startsWith("/vol ")) {  // 序列埠測試：/vol 0~255
+        setVolume(constrain(serialLine.substring(5).toInt(), 0, 255));
+      } else if (serialLine.length()) {
+        sendText(serialLine);
+      }
       serialLine = "";
     } else if (serialLine.length() < 500) {
       serialLine += c;
@@ -1719,6 +1761,7 @@ void loop() {
   }
 
   handleButtons();
+  handleVolumeButton();
   handleSerial();
   if (!recorder.recording()) delay(5);
 }

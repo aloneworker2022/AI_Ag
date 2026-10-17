@@ -12,6 +12,7 @@ class Player {
   void finish(int id);                         // Pi 說這段送完了，播完就結束
   void stop();                                 // 立刻停止（例如使用者按 A 要說話）
   void loop();  // 由背景工作呼叫
+  void setVolume(uint8_t volume);  // 0–255，播放中也能調
 
   bool active() const { return active_; }
   int id() const { return id_; }

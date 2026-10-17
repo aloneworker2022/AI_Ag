@@ -1,5 +1,7 @@
 #include "player.h"
 
+#include "settings.h"
+
 #include <M5Unified.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
@@ -12,7 +14,6 @@ namespace {
 constexpr size_t PLAY_CHUNK = 2048;
 constexpr size_t PLAY_POOL = 16;
 constexpr uint8_t PLAY_CH = 0;           // 喇叭聲道
-constexpr uint8_t PLAY_VOLUME = 160;     // 0–255
 int16_t playPool[PLAY_POOL][PLAY_CHUNK];
 size_t playLen[PLAY_POOL];
 QueueHandle_t playFreeQ = nullptr;      // 可以拿來裝資料的緩衝（喇叭播完放回來）
@@ -77,7 +78,7 @@ void Player::start(int id, uint32_t sampleRate) {
   M5.Mic.end();
   M5.Speaker.setBufferReleaseCallback(nullptr, onPlayReleased);
   M5.Speaker.begin();
-  M5.Speaker.setVolume(PLAY_VOLUME);
+  M5.Speaker.setVolume(settings.volume);
   active_ = true;
 }
 
@@ -159,4 +160,9 @@ void Player::end() {
   active_ = false;
   finished_ = false;
   id_ = -1;
+}
+
+void Player::setVolume(uint8_t volume) {
+  // 正在播就馬上套用；沒在播，下次 start() 會用 settings.volume
+  if (active_) M5.Speaker.setVolume(volume);
 }

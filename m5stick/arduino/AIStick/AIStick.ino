@@ -223,13 +223,18 @@ class Ui {
   void showRecording(uint32_t elapsedMs, int level);
   // said：使用者說的話（還沒辨識完可以是空字串）；status：例如「辨識中…」「思考中…」
   void showThinking(const String& said, const String& status);
-  // 長按 B 時的提示（放開會做什麼）
+  // 底部提示列（例如「再按一次 B：開新對話」）
   void showHint(const String& hint);
   void showReply(const String& title, const String& text);
   // 回覆一邊產生一邊顯示：永遠捲到最後幾行
   void showReplyLive(const String& title, const String& text);
   // Hermes 要執行需要核准的指令：A 允許一次、B 拒絕
   void showApproval(const String& command, const String& description);
+
+  // 選單：蓋在目前畫面上，關掉後回到原本的畫面（期間其他畫面更新會在背景記著）
+  void showMenu(const String& title, const std::vector<String>& items, int cursor);
+  void hideMenu();
+  bool menuShown() const { return menuActive_; }
 
   // 回覆畫面捲動；捲到底回傳 false
   bool scrollDown();
@@ -240,6 +245,7 @@ class Ui {
   enum class Mode { Info, Home, Recording, Thinking, Reply, Approval };
 
   void render();
+  void drawMenu();
   void drawStatusBar();
   void drawWrapped(const String& text, int x, int y, int w, int firstLine, int maxLines);
   std::vector<String> wrap(const String& text, int width);
@@ -254,6 +260,10 @@ class Ui {
   uint32_t recMs_ = 0;
   int level_ = 0;
   bool infoSmall_ = false;
+  bool menuActive_ = false;
+  String menuTitle_;
+  std::vector<String> menuItems_;
+  int menuCursor_ = 0;
 };
 
 extern Ui ui;
@@ -341,6 +351,7 @@ void Ui::showThinking(const String& said, const String& status) {
 }
 
 void Ui::showHint(const String& hint) {
+  if (menuActive_) return;
   canvas.setFont(SMALL);
   canvas.fillRect(0, FOOT_Y - 2, W, SMALL_H + 2, COL_ACCENT);
   canvas.setTextColor(TFT_BLACK, COL_ACCENT);
@@ -365,6 +376,48 @@ void Ui::showReplyLive(const String& title, const String& text) {
   int visible = bigLines(TOP, H);
   scroll_ = max(0, total - visible);
   render();
+}
+
+void Ui::showMenu(const String& title, const std::vector<String>& items, int cursor) {
+  menuActive_ = true;
+  menuTitle_ = title;
+  menuItems_ = items;
+  menuCursor_ = cursor;
+  render();
+}
+
+void Ui::hideMenu() {
+  menuActive_ = false;
+  render();
+}
+
+void Ui::drawMenu() {
+  constexpr int TITLE_H = 20;
+  constexpr int ROW_H = 28;
+  const int visible = (H - TITLE_H) / ROW_H;  // 一次顯示 4 列
+  canvas.fillScreen(COL_BG);
+  canvas.setFont(SMALL);
+  canvas.fillRect(0, 0, W, TITLE_H, COL_ACCENT);
+  canvas.setTextColor(TFT_BLACK, COL_ACCENT);
+  canvas.drawString(menuTitle_.c_str(), PAD, 2);
+  const char* help = "B 下一個  A 選擇";
+  canvas.drawString(help, W - PAD - canvas.textWidth(help), 2);
+
+  int n = menuItems_.size();
+  int first = 0;  // 讓游標那一列一定看得到
+  if (menuCursor_ >= visible) first = menuCursor_ - visible + 1;
+  canvas.setFont(BIG);
+  for (int k = 0; k < visible && first + k < n; k++) {
+    int i = first + k;
+    int y = TITLE_H + k * ROW_H;
+    bool sel = i == menuCursor_;
+    if (sel) canvas.fillRect(0, y, W, ROW_H, COL_TEXT);
+    canvas.setTextColor(sel ? TFT_BLACK : COL_TEXT, sel ? COL_TEXT : COL_BG);
+    canvas.drawString(menuItems_[i].c_str(), PAD + 4, y + 1);
+  }
+  // 上下還有選項時，右邊畫小三角形提示
+  if (first > 0) canvas.fillTriangle(W - 12, TITLE_H + 10, W - 2, TITLE_H + 10, W - 7, TITLE_H + 3, COL_DIM);
+  if (first + visible < n) canvas.fillTriangle(W - 12, H - 9, W - 2, H - 9, W - 7, H - 2, COL_DIM);
 }
 
 void Ui::showApproval(const String& command, const String& description) {
@@ -450,6 +503,11 @@ void Ui::drawStatusBar() {
 }
 
 void Ui::render() {
+  if (menuActive_) {
+    drawMenu();
+    canvas.pushSprite(0, 0);
+    return;
+  }
   canvas.fillScreen(COL_BG);
   drawStatusBar();
   const int w = W - PAD * 2;
@@ -472,7 +530,7 @@ void Ui::render() {
       canvas.setTextColor(COL_DIM, COL_BG);
       canvas.drawString("放開就送出", PAD, TOP + 8 + BIG_H);
       canvas.setFont(SMALL);
-      canvas.drawString("B 兩下：新對話  長按：Wi-Fi", PAD, FOOT_Y);
+      canvas.drawString("B 兩下：新對話  長按：選單", PAD, FOOT_Y);
       break;
 
     case Mode::Recording: {
@@ -681,6 +739,7 @@ class Player {
   void stop();                                 // 立刻停止（例如使用者按 A 要說話）
   void loop();  // 由背景工作呼叫
   void setVolume(uint8_t volume);  // 0–255，播放中也能調
+  void beep(uint8_t volume);       // 用這個音量嗶一聲（調音量時試聽）
 
   bool active() const { return active_; }
   int id() const { return id_; }
@@ -859,6 +918,20 @@ void Player::setVolume(uint8_t volume) {
   if (active_) M5.Speaker.setVolume(volume);
 }
 
+void Player::beep(uint8_t volume) {
+  if (active_) {  // 正在念：直接改音量就聽得到差別
+    M5.Speaker.setVolume(volume);
+    return;
+  }
+  M5.Mic.end();
+  M5.Speaker.begin();
+  M5.Speaker.setVolume(volume);
+  M5.Speaker.tone(1000, 120);
+  delay(160);
+  M5.Speaker.end();
+  M5.Mic.begin();
+}
+
 // ===== wifi_manager.h =====
 // 多組 Wi-Fi：依清單順序找第一個「附近有、連得上」的網路。
 // 斷線會自動重找；也可以手動切到清單裡的下一組（例如從家裡 Wi-Fi 切到手機熱點）。
@@ -873,6 +946,8 @@ class WifiManager {
 
   // 切到清單中「目前這組之後」第一個連得上的網路
   void switchNext();
+  // 直接連清單裡第 index 組；連不上就照順序找別組
+  void connectTo(int index);
 
   bool connected() const;
   int currentIndex() const { return current_; }
@@ -927,10 +1002,23 @@ bool WifiManager::takeChanged() {
 
 void WifiManager::switchNext() {
   if (settings.networkCount == 0) {
-    onStatus_("沒有存 Wi-Fi\nB 按 5 秒：設定");
+    onStatus_("沒有存 Wi-Fi\nB 長按：選單");
     return;
   }
   connectBest(current_);
+}
+
+void WifiManager::connectTo(int index) {
+  if (index < 0 || index >= settings.networkCount) return;
+  if (tryConnect(index)) {
+    current_ = index;
+    lostAt_ = 0;
+    changed_ = true;
+    onStatus_("已連上\n" + settings.networks[index].ssid);
+    return;
+  }
+  onStatus_("連不上\n" + settings.networks[index].ssid + "\n改找其他網路…");
+  connectBest(-1);
 }
 
 void WifiManager::loop() {
@@ -970,7 +1058,7 @@ bool WifiManager::tryConnect(int index) {
 bool WifiManager::connectBest(int after) {
   const int count = settings.networkCount;
   if (count == 0) {
-    onStatus_("沒有存 Wi-Fi\nB 按 5 秒：設定");
+    onStatus_("沒有存 Wi-Fi\nB 長按：選單");
     nextRetryAt_ = millis() + RETRY_INTERVAL_MS;
     return false;
   }
@@ -1009,7 +1097,7 @@ bool WifiManager::connectBest(int after) {
   }
   current_ = -1;
   nextRetryAt_ = millis() + RETRY_INTERVAL_MS;
-  onStatus_("找不到 Wi-Fi\n30 秒後重試\nB 按 5 秒：設定");
+  onStatus_("找不到 Wi-Fi\n30 秒後重試\nB 長按：選單");
   return false;
 }
 
@@ -1057,7 +1145,7 @@ extern Link piLink;
 
 // ===== link.cpp =====
 #ifndef FW_VERSION
-#define FW_VERSION "0.4.1"
+#define FW_VERSION "0.5.0"
 #endif
 
 Link piLink;
@@ -1237,7 +1325,7 @@ void handleRoot() {
   if (note == "full") h += F("<p class='note'>Wi-Fi 清單已滿，請先刪除一組。</p>");
 
   h += F("<h2>Wi-Fi 清單</h2><p class='muted'>開機時從第 1 組開始找，附近有、連得上就用。"
-         "平常在 Stick 上長按 B 可以切到下一組。</p><section>");
+         "平常在 Stick 上長按 B 開選單 → Wi-Fi，可以直接選要連哪一組。</p><section>");
   if (settings.networkCount == 0) h += F("<p>（還沒有）</p>");
   for (int i = 0; i < settings.networkCount; i++) {
     const NetworkEntry& n = settings.networks[i];
@@ -1384,14 +1472,12 @@ void runSetupPortal() {
 // Stick ──WebSocket──▶ Pi 上的 bridge（Whisper 語音辨識）──▶ Hermes Agent
 //
 // 按鍵：
-//   A 按住：說話（放開就送出給 Pi 辨識）
+//   A 按住：說話（放開就送出給 Pi 辨識）；AI 說話或還在想時按住 A 直接插話
 //   B 單按：回覆畫面往下捲，捲到底回首頁
 //   B 在首頁連按兩下：開新對話（Hermes 換新 session）
+//   B 長按：打開選單（B 往下移、A 選擇；每層最後一項是「離開」）
+//     主選單：Wi-Fi（選網路／手機設定模式）、音量（1～5 格）、離開
 //   Hermes 要求核准指令時：A 允許一次、B 拒絕
-//   語音模式下 AI 說話（或還在想）時按住 A：直接插話
-//   側邊電源鍵單按：喇叭音量往上一格（共 5 格，最大後回到最小）；長按仍是關機
-//   B 長按 1.5 秒放開：切換到清單裡的下一組 Wi-Fi（家裡 ⇄ 手機熱點）
-//   B 長按 5 秒放開：進入設定模式（用手機設定 Wi-Fi、Pi 位址、token）
 // 序列埠：在 serial monitor 打一行字按 Enter，會當成文字訊息送給 Pi（測試用）。
 
 
@@ -1401,8 +1487,7 @@ constexpr uint32_t DOUBLE_CLICK_MS = 2500;
 constexpr uint32_t RECONNECT_GRACE_MS = 60000;  // 等回覆時斷線，最多等這麼久重連
 constexpr uint32_t MIN_SPEECH_MS = 400;        // 按太短當作誤觸
 constexpr uint32_t MAX_SPEECH_MS = 30000;      // 跟 Pi 的 stt.max_seconds 一致
-constexpr uint32_t HOLD_SWITCH_MS = 1500;
-constexpr uint32_t HOLD_SETUP_MS = 5000;
+constexpr uint32_t MENU_HOLD_MS = 1000;  // B 按住這麼久打開選單
 
 int waitingId = -1;  // 等 Pi 回覆中的訊息 id
 uint32_t waitingSince = 0;
@@ -1413,8 +1498,13 @@ String agentName = "Hermes";
 bool approvalPending = false;
 uint32_t lastHomeClickAt = 0;
 String serialLine;
-uint32_t bPressedAt = 0;
-int bHintShown = 0;
+bool ignoreNextBClick = false;  // 這次按 B 是用來回覆核准，放開時不要再觸發別的
+
+// 選單
+enum class Menu { None, Main, Wifi, Volume };
+Menu menu = Menu::None;
+int menuCursor = 0;
+int menuCount = 0;
 
 void startWaiting(int id, const String& text, const String& status) {
   waitingId = id;
@@ -1549,6 +1639,109 @@ void sendSimple(const char* type, const char* choice = nullptr) {
   piLink.send(doc);
 }
 
+// ---- 音量 ----
+constexpr uint8_t VOLUME_LEVELS[] = {48, 96, 144, 200, 255};
+constexpr int VOLUME_LEVEL_COUNT = sizeof(VOLUME_LEVELS) / sizeof(VOLUME_LEVELS[0]);
+
+int volumeLevelIndex() {
+  for (int i = VOLUME_LEVEL_COUNT - 1; i >= 0; i--) {
+    if (settings.volume >= VOLUME_LEVELS[i]) return i;
+  }
+  return 0;
+}
+
+void setVolume(uint8_t v) {
+  settings.volume = v;
+  settingsSave();
+  player.setVolume(v);
+  Serial.printf("[vol] %u\n", v);
+}
+
+// ---- 選單 ----
+void showMenu(Menu which, int cursor = 0) {
+  menu = which;
+  std::vector<String> items;
+  String title;
+  switch (which) {
+    case Menu::Main:
+      title = "選單";
+      items = {"Wi-Fi", "音量", "離開"};
+      break;
+    case Menu::Wifi:
+      title = "Wi-Fi";
+      for (int i = 0; i < settings.networkCount; i++) {
+        items.push_back((i == wifi.currentIndex() ? "● " : "  ") + settings.networks[i].ssid);
+      }
+      items.push_back("手機設定模式");
+      items.push_back("離開");
+      break;
+    case Menu::Volume: {
+      title = "音量";
+      const char* names[] = {"1 小聲", "2", "3", "4", "5 最大"};
+      int cur = volumeLevelIndex();
+      for (int i = 0; i < VOLUME_LEVEL_COUNT; i++) {
+        items.push_back(String(i == cur ? "● " : "  ") + names[i]);
+      }
+      items.push_back("離開");
+      break;
+    }
+    case Menu::None:
+      return;
+  }
+  menuCount = items.size();
+  menuCursor = constrain(cursor, 0, menuCount - 1);
+  ui.showMenu(title, items, menuCursor);
+}
+
+void closeMenu() {
+  menu = Menu::None;
+  ui.hideMenu();
+}
+
+void menuSelect() {
+  bool isLeave = menuCursor == menuCount - 1;
+  switch (menu) {
+    case Menu::Main:
+      if (menuCursor == 0) showMenu(Menu::Wifi);
+      else if (menuCursor == 1) showMenu(Menu::Volume, volumeLevelIndex());
+      else closeMenu();
+      break;
+    case Menu::Wifi:
+      if (isLeave) {
+        showMenu(Menu::Main, 0);
+      } else if (menuCursor == menuCount - 2) {
+        closeMenu();
+        runSetupPortal();  // 不會返回（設定完會重新開機）
+      } else {
+        int idx = menuCursor;
+        closeMenu();
+        piLink.stop();
+        waitingId = -1;
+        wifi.connectTo(idx);
+      }
+      break;
+    case Menu::Volume:
+      if (isLeave) {
+        showMenu(Menu::Main, 1);
+      } else {
+        setVolume(VOLUME_LEVELS[menuCursor]);
+        player.beep(settings.volume);   // 嗶一聲讓你聽聽看
+        showMenu(Menu::Volume, menuCursor);  // 更新「●」標記
+      }
+      break;
+    case Menu::None:
+      break;
+  }
+}
+
+void handleMenuButtons() {
+  if (M5.BtnB.wasClicked()) {
+    menuCursor = (menuCursor + 1) % menuCount;  // 到底後回到第一個
+    showMenu(menu, menuCursor);
+  }
+  if (M5.BtnA.wasClicked()) menuSelect();
+}
+
 // ---- 按鍵 ----
 void handleButtons() {
   // 核准畫面：A 允許一次、B 拒絕
@@ -1559,9 +1752,13 @@ void handleButtons() {
       sendSimple("approval_reply", allow ? "once" : "deny");
       approvalPending = false;
       ui.showThinking(said, allow ? "已允許，繼續中…" : "已拒絕，繼續中…");
-      bPressedAt = millis();
-      bHintShown = 3;  // 這次 B 放開不要再觸發別的動作
+      if (deny) ignoreNextBClick = true;
     }
+    return;
+  }
+
+  if (menu != Menu::None) {
+    handleMenuButtons();
     return;
   }
 
@@ -1569,33 +1766,16 @@ void handleButtons() {
   if (M5.BtnA.wasPressed()) startSpeaking();
   if (M5.BtnA.wasReleased()) stopSpeaking();
 
-  // B：依按住時間決定動作，按住時提示放開會做什麼
-  if (M5.BtnB.wasPressed()) {
-    bPressedAt = millis();
-    bHintShown = 0;
+  // B 長按：打開選單（說話中不開）
+  if (M5.BtnB.wasHold() && !recorder.recording()) {
+    showMenu(Menu::Main);
+    return;
   }
-  if (M5.BtnB.isPressed() && !recorder.recording()) {
-    uint32_t held = millis() - bPressedAt;
-    if (held >= HOLD_SETUP_MS && bHintShown < 2) {
-      ui.showHint("放開：進入設定模式");
-      bHintShown = 2;
-    } else if (held >= HOLD_SWITCH_MS && held < HOLD_SETUP_MS && bHintShown < 1) {
-      ui.showHint("放開：換下一組 Wi-Fi");
-      bHintShown = 1;
-    }
-  }
-  if (M5.BtnB.wasReleased() && !recorder.recording()) {
-    uint32_t held = millis() - bPressedAt;
-    if (bHintShown == 3) {  // 這次按 B 是用來回覆核准
-      bHintShown = 0;
-      return;
-    }
-    if (held >= HOLD_SETUP_MS) {
-      runSetupPortal();  // 不會返回
-    } else if (held >= HOLD_SWITCH_MS) {
-      piLink.stop();
-      waitingId = -1;
-      wifi.switchNext();
+
+  // B 單按
+  if (M5.BtnB.wasClicked() && !recorder.recording()) {
+    if (ignoreNextBClick) {
+      ignoreNextBClick = false;
     } else if (ui.isReply()) {
       if (!ui.scrollDown()) ui.showHome();
     } else if (waitingId < 0 && ui.isHome()) {
@@ -1614,31 +1794,6 @@ void handleButtons() {
       ui.showHome();
     }
   }
-}
-
-// 音量 5 格
-constexpr uint8_t VOLUME_LEVELS[] = {48, 96, 144, 200, 255};
-constexpr int VOLUME_LEVEL_COUNT = sizeof(VOLUME_LEVELS) / sizeof(VOLUME_LEVELS[0]);
-
-int volumeLevelIndex() {
-  for (int i = VOLUME_LEVEL_COUNT - 1; i >= 0; i--) {
-    if (settings.volume >= VOLUME_LEVELS[i]) return i;
-  }
-  return 0;
-}
-
-void setVolume(uint8_t v) {
-  settings.volume = v;
-  settingsSave();
-  player.setVolume(v);
-  ui.showHint("音量 " + String(volumeLevelIndex() + 1) + "/" + String(VOLUME_LEVEL_COUNT));
-  Serial.printf("[vol] %u\n", v);
-}
-
-void handleVolumeButton() {
-  if (!M5.BtnPWR.wasClicked()) return;
-  int next = (volumeLevelIndex() + 1) % VOLUME_LEVEL_COUNT;
-  setVolume(VOLUME_LEVELS[next]);
 }
 
 void handleSerial() {
@@ -1663,6 +1818,7 @@ void handleSerial() {
 void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
+  M5.BtnB.setHoldThresh(MENU_HOLD_MS);
   Serial.begin(115200);
 
   ui.begin();
@@ -1761,7 +1917,6 @@ void loop() {
   }
 
   handleButtons();
-  handleVolumeButton();
   handleSerial();
   if (!recorder.recording()) delay(5);
 }

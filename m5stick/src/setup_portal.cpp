@@ -59,7 +59,7 @@ void handleRoot() {
   if (note == "full") h += F("<p class='note'>Wi-Fi 清單已滿，請先刪除一組。</p>");
 
   h += F("<h2>Wi-Fi 清單</h2><p class='muted'>開機時從第 1 組開始找，附近有、連得上就用。"
-         "平常在 Stick 上長按 B 可以切到下一組。</p><section>");
+         "平常在 Stick 上長按 B 開選單 → Wi-Fi，可以直接選要連哪一組。</p><section>");
   if (settings.networkCount == 0) h += F("<p>（還沒有）</p>");
   for (int i = 0; i < settings.networkCount; i++) {
     const NetworkEntry& n = settings.networks[i];

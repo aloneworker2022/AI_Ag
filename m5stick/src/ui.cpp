@@ -84,6 +84,7 @@ void Ui::showThinking(const String& said, const String& status) {
 }
 
 void Ui::showHint(const String& hint) {
+  if (menuActive_) return;
   canvas.setFont(SMALL);
   canvas.fillRect(0, FOOT_Y - 2, W, SMALL_H + 2, COL_ACCENT);
   canvas.setTextColor(TFT_BLACK, COL_ACCENT);
@@ -108,6 +109,48 @@ void Ui::showReplyLive(const String& title, const String& text) {
   int visible = bigLines(TOP, H);
   scroll_ = max(0, total - visible);
   render();
+}
+
+void Ui::showMenu(const String& title, const std::vector<String>& items, int cursor) {
+  menuActive_ = true;
+  menuTitle_ = title;
+  menuItems_ = items;
+  menuCursor_ = cursor;
+  render();
+}
+
+void Ui::hideMenu() {
+  menuActive_ = false;
+  render();
+}
+
+void Ui::drawMenu() {
+  constexpr int TITLE_H = 20;
+  constexpr int ROW_H = 28;
+  const int visible = (H - TITLE_H) / ROW_H;  // 一次顯示 4 列
+  canvas.fillScreen(COL_BG);
+  canvas.setFont(SMALL);
+  canvas.fillRect(0, 0, W, TITLE_H, COL_ACCENT);
+  canvas.setTextColor(TFT_BLACK, COL_ACCENT);
+  canvas.drawString(menuTitle_.c_str(), PAD, 2);
+  const char* help = "B 下一個  A 選擇";
+  canvas.drawString(help, W - PAD - canvas.textWidth(help), 2);
+
+  int n = menuItems_.size();
+  int first = 0;  // 讓游標那一列一定看得到
+  if (menuCursor_ >= visible) first = menuCursor_ - visible + 1;
+  canvas.setFont(BIG);
+  for (int k = 0; k < visible && first + k < n; k++) {
+    int i = first + k;
+    int y = TITLE_H + k * ROW_H;
+    bool sel = i == menuCursor_;
+    if (sel) canvas.fillRect(0, y, W, ROW_H, COL_TEXT);
+    canvas.setTextColor(sel ? TFT_BLACK : COL_TEXT, sel ? COL_TEXT : COL_BG);
+    canvas.drawString(menuItems_[i].c_str(), PAD + 4, y + 1);
+  }
+  // 上下還有選項時，右邊畫小三角形提示
+  if (first > 0) canvas.fillTriangle(W - 12, TITLE_H + 10, W - 2, TITLE_H + 10, W - 7, TITLE_H + 3, COL_DIM);
+  if (first + visible < n) canvas.fillTriangle(W - 12, H - 9, W - 2, H - 9, W - 7, H - 2, COL_DIM);
 }
 
 void Ui::showApproval(const String& command, const String& description) {
@@ -193,6 +236,11 @@ void Ui::drawStatusBar() {
 }
 
 void Ui::render() {
+  if (menuActive_) {
+    drawMenu();
+    canvas.pushSprite(0, 0);
+    return;
+  }
   canvas.fillScreen(COL_BG);
   drawStatusBar();
   const int w = W - PAD * 2;
@@ -215,7 +263,7 @@ void Ui::render() {
       canvas.setTextColor(COL_DIM, COL_BG);
       canvas.drawString("放開就送出", PAD, TOP + 8 + BIG_H);
       canvas.setFont(SMALL);
-      canvas.drawString("B 兩下：新對話  長按：Wi-Fi", PAD, FOOT_Y);
+      canvas.drawString("B 兩下：新對話  長按：選單", PAD, FOOT_Y);
       break;
 
     case Mode::Recording: {

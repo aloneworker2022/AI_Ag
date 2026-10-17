@@ -14,6 +14,8 @@ class WifiManager {
 
   // 切到清單中「目前這組之後」第一個連得上的網路
   void switchNext();
+  // 直接連清單裡第 index 組；連不上就照順序找別組
+  void connectTo(int index);
 
   bool connected() const;
   int currentIndex() const { return current_; }

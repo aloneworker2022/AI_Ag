@@ -36,10 +36,23 @@ bool WifiManager::takeChanged() {
 
 void WifiManager::switchNext() {
   if (settings.networkCount == 0) {
-    onStatus_("沒有存 Wi-Fi\nB 按 5 秒：設定");
+    onStatus_("沒有存 Wi-Fi\nB 長按：選單");
     return;
   }
   connectBest(current_);
+}
+
+void WifiManager::connectTo(int index) {
+  if (index < 0 || index >= settings.networkCount) return;
+  if (tryConnect(index)) {
+    current_ = index;
+    lostAt_ = 0;
+    changed_ = true;
+    onStatus_("已連上\n" + settings.networks[index].ssid);
+    return;
+  }
+  onStatus_("連不上\n" + settings.networks[index].ssid + "\n改找其他網路…");
+  connectBest(-1);
 }
 
 void WifiManager::loop() {
@@ -79,7 +92,7 @@ bool WifiManager::tryConnect(int index) {
 bool WifiManager::connectBest(int after) {
   const int count = settings.networkCount;
   if (count == 0) {
-    onStatus_("沒有存 Wi-Fi\nB 按 5 秒：設定");
+    onStatus_("沒有存 Wi-Fi\nB 長按：選單");
     nextRetryAt_ = millis() + RETRY_INTERVAL_MS;
     return false;
   }
@@ -118,6 +131,6 @@ bool WifiManager::connectBest(int after) {
   }
   current_ = -1;
   nextRetryAt_ = millis() + RETRY_INTERVAL_MS;
-  onStatus_("找不到 Wi-Fi\n30 秒後重試\nB 按 5 秒：設定");
+  onStatus_("找不到 Wi-Fi\n30 秒後重試\nB 長按：選單");
   return false;
 }

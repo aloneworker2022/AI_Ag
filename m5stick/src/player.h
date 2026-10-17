@@ -13,6 +13,7 @@ class Player {
   void stop();                                 // 立刻停止（例如使用者按 A 要說話）
   void loop();  // 由背景工作呼叫
   void setVolume(uint8_t volume);  // 0–255，播放中也能調
+  void beep(uint8_t volume);       // 用這個音量嗶一聲（調音量時試聽）
 
   bool active() const { return active_; }
   int id() const { return id_; }

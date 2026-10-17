@@ -166,3 +166,17 @@ void Player::setVolume(uint8_t volume) {
   // 正在播就馬上套用；沒在播，下次 start() 會用 settings.volume
   if (active_) M5.Speaker.setVolume(volume);
 }
+
+void Player::beep(uint8_t volume) {
+  if (active_) {  // 正在念：直接改音量就聽得到差別
+    M5.Speaker.setVolume(volume);
+    return;
+  }
+  M5.Mic.end();
+  M5.Speaker.begin();
+  M5.Speaker.setVolume(volume);
+  M5.Speaker.tone(1000, 120);
+  delay(160);
+  M5.Speaker.end();
+  M5.Mic.begin();
+}

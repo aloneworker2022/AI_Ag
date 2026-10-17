@@ -87,42 +87,8 @@ def _transcribe_sync(pcm: bytes, rate: int) -> str:
     return text
 
 
-async def _transcribe_remote(pcm: bytes, rate: int) -> str:
-    """交給 Win11 電腦上的 Breeze ASR 25（pc_voice/compose.yaml 的 asr 服務）。"""
-    import httpx
-
-    cfg = _cfg()
-    url = cfg.get("remote_url") or "http://127.0.0.1:8081/asr"
-    headers = {"Content-Type": "application/octet-stream"}
-    if cfg.get("remote_token"):
-        headers["X-Voice-Token"] = str(cfg["remote_token"])
-    try:
-        async with httpx.AsyncClient(timeout=float(cfg.get("remote_timeout", 30))) as client:
-            r = await client.post(url, params={"rate": rate}, content=pcm, headers=headers)
-    except httpx.ConnectError as e:
-        raise SttUnavailable("連不到電腦上的 Breeze ASR（docker compose 有開嗎？）") from e
-    except httpx.TimeoutException as e:
-        raise SttUnavailable("Breeze ASR 太久沒回應") from e
-    if r.status_code != 200:
-        raise SttUnavailable(f"Breeze ASR 回應 {r.status_code}")
-    text = str(r.json().get("text") or "").strip()
-    if cfg.get("traditional", True):
-        global _converter
-        if _converter is None:
-            try:
-                import opencc
-                _converter = opencc.OpenCC("s2twp")
-            except ImportError:
-                pass
-        if _converter is not None:
-            text = _converter.convert(text)
-    return text
-
-
 async def transcribe(pcm: bytes, rate: int = 16000) -> str:
     """把 16-bit little-endian 單聲道 PCM 轉成文字；聽不到內容回傳空字串。"""
-    if _cfg().get("engine", "whisper") == "remote":
-        return await _transcribe_remote(pcm, rate)
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(_executor, _transcribe_sync, pcm, rate)
 

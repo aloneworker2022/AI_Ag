@@ -27,11 +27,7 @@ hermes:
   approval_timeout: 120
 
 stt:
-  # whisper = 在 Pi 上用 faster-whisper；remote = 交給 Win11 電腦上的 Breeze ASR 25（台灣華語，較準較快）
-  engine: whisper
-  remote_url: http://192.168.68.XX:8081/asr   # 換成電腦的 IP
-  remote_token: ""                            # 跟 pc_voice/.env 的 VOICE_TOKEN 一樣（沒設就留空）
-  # 以下是 engine: whisper 用的設定。Pi 5 建議 small（中文較準）；嫌慢改 base。
+  # 語音轉文字（本地 faster-whisper，在 Pi 上跑）。Pi 5 建議 small（中文較準）；嫌慢改 base。
   # 第一次用會自動下載模型（Pi 要能上網一次）。
   model: small
   language: zh
@@ -44,9 +40,17 @@ stt:
   save_last_wav: false     # 診斷用：true = 把最後一段收到的語音存成 bridge/last_input.wav
 
 voice:
-  # true = 回覆用 Win11 電腦上的 BreezyVoice（台灣腔）一邊產生一邊念出來
-  enabled: false
-  tts_url: http://192.168.68.XX:8080/audio/speech   # 換成電腦的 IP
+  # true = 回覆一邊產生一邊念出來（Stick 的喇叭）；false = 只顯示文字
+  enabled: true
+  # piper = 在 Pi 上用 Piper 合成（離線、免費、電腦不用裝東西）
+  # http  = 改用其他 OpenAI 相容的 TTS 服務（填 tts_url）
+  engine: piper
+  # Piper 的聲音：第一次用會自動下載到 bridge/voices/（要網路一次）
+  # 試聽：https://rhasspy.github.io/piper-samples/ （語言選 Chinese）
+  piper_voice: zh_CN-huayan-medium
+  length_scale: 1.0        # 語速：小於 1 比較快（例如 0.9），大於 1 比較慢
+  volume: 1.0
+  tts_url: http://127.0.0.1:8080/audio/speech   # engine: http 才用到
   timeout: 30
   # 語音模式時加給 Hermes 的說話方式（讓它像在聊天，而不是寫文章）
   style_prompt: >-

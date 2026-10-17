@@ -1,8 +1,10 @@
-"""語音回覆：Hermes 一邊產生文字，這裡一邊切句子、交給 Win11 電腦上的 BreezyVoice 合成台灣腔語音，
-再照播放速度串流給 Stick。
+"""語音回覆：Hermes 一邊產生文字，這裡一邊切句子、合成語音，再照播放速度串流給 Stick。
 
-BreezyVoice 是 OpenAI 相容的 TTS 服務（pc_voice/compose.yaml 的 tts），
-POST {"input": "..."} 回傳 22.05 kHz WAV；這裡轉成 Stick 用的 16 kHz 16-bit 單聲道 PCM。
+合成引擎（voice.engine）：
+- piper（預設）：Piper，直接在 Pi 上跑，離線、免費，電腦不用裝任何東西
+- http：任何 OpenAI 相容的 TTS 服務（POST {"input": "..."} 回傳 WAV），之後想換聲音用
+
+輸出一律轉成 Stick 用的 16 kHz 16-bit 單聲道 PCM。
 """
 from __future__ import annotations
 
@@ -10,12 +12,14 @@ import asyncio
 import io
 import logging
 import re
+import threading
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Awaitable, Callable
 
 import httpx
 
-from .config import section
+from .config import BRIDGE_DIR, section
 
 log = logging.getLogger("bridge.voice")
 
@@ -90,12 +94,77 @@ class SentenceSplitter:
 
 
 # ---------------------------------------------------------------------------
-# 合成：BreezyVoice（HTTP）→ 16 kHz PCM
+# 合成
 # ---------------------------------------------------------------------------
 class VoiceError(RuntimeError):
     pass
 
 
+def _resample_to_out(audio, rate: int) -> bytes:
+    """float/int 陣列（單聲道）→ 16 kHz int16 bytes。"""
+    import numpy as np
+
+    audio = np.asarray(audio, dtype=np.float32)
+    if rate != OUT_RATE and len(audio):
+        n = int(len(audio) * OUT_RATE / rate)
+        audio = np.interp(np.linspace(0, len(audio) - 1, n), np.arange(len(audio)), audio)
+    return np.clip(audio, -32768, 32767).astype("<i2").tobytes()
+
+
+# ---- Piper（在 Pi 上跑）----
+VOICES_DIR = BRIDGE_DIR / "voices"
+_piper_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="piper")
+_piper_lock = threading.Lock()
+_piper: Any = None
+
+
+def _load_piper() -> Any:
+    """第一次用才載入；聲音檔不在就自動下載到 bridge/voices/（要網路一次）。"""
+    global _piper
+    with _piper_lock:
+        if _piper is not None:
+            return _piper
+        try:
+            from piper import PiperVoice
+            from piper.config import PhonemeType
+            from piper.download_voices import download_voice
+        except ImportError as e:
+            raise VoiceError("Pi 上沒裝 piper-tts（pip install piper-tts）") from e
+        name = str(_cfg().get("piper_voice") or "zh_CN-huayan-medium")
+        VOICES_DIR.mkdir(parents=True, exist_ok=True)
+        model = VOICES_DIR / f"{name}.onnx"
+        if not model.exists():
+            log.info("downloading piper voice %s", name)
+            download_voice(name, VOICES_DIR)
+        voice = PiperVoice.load(model, download_dir=VOICES_DIR)
+        if voice.config.phoneme_type == PhonemeType.PINYIN and not (VOICES_DIR / "g2pW").exists():
+            from piper.phonemize_chinese import download_model
+            download_model(VOICES_DIR / "g2pW")  # 拼音型中文聲音要的多音字模型
+        _piper = voice
+        return voice
+
+
+def _piper_synth_sync(text: str) -> bytes:
+    import numpy as np
+    from piper.config import SynthesisConfig
+
+    voice = _load_piper()
+    cfg = _cfg()
+    syn = SynthesisConfig(length_scale=float(cfg.get("length_scale", 1.0)),
+                          volume=float(cfg.get("volume", 1.0)))
+    chunks = list(voice.synthesize(text, syn))
+    if not chunks:
+        return b""
+    audio = np.concatenate([c.audio_int16_array for c in chunks]).astype(np.float32)
+    return _resample_to_out(audio, chunks[0].sample_rate)
+
+
+async def _piper_synth(text: str) -> bytes:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_piper_executor, _piper_synth_sync, text)
+
+
+# ---- OpenAI 相容的 HTTP TTS 服務 ----
 def _wav_to_pcm16k(data: bytes) -> bytes:
     import numpy as np
 
@@ -104,31 +173,34 @@ def _wav_to_pcm16k(data: bytes) -> bytes:
         frames = w.readframes(w.getnframes())
     if width == 2:
         audio = np.frombuffer(frames, dtype="<i2").astype(np.float32)
-    elif width == 4:  # 有些版本存成 32-bit float
+    elif width == 4:  # 有些服務存成 32-bit float
         audio = np.frombuffer(frames, dtype="<f4").astype(np.float32) * 32767.0
     else:
         raise VoiceError(f"不支援的 WAV 格式（{width * 8}-bit）")
     if ch > 1:
         audio = audio.reshape(-1, ch).mean(axis=1)
-    if rate != OUT_RATE and len(audio):
-        n = int(len(audio) * OUT_RATE / rate)
-        audio = np.interp(np.linspace(0, len(audio) - 1, n), np.arange(len(audio)), audio)
-    return np.clip(audio, -32768, 32767).astype("<i2").tobytes()
+    return _resample_to_out(audio, rate)
 
 
-async def synthesize(client: httpx.AsyncClient, text: str) -> bytes:
+async def _http_synth(client: httpx.AsyncClient, text: str) -> bytes:
     cfg = _cfg()
     url = cfg.get("tts_url") or "http://127.0.0.1:8080/audio/speech"
     try:
-        r = await client.post(url, json={"model": "breezyvoice", "input": text},
+        r = await client.post(url, json={"model": "tts", "input": text},
                               timeout=float(cfg.get("timeout", 30)))
     except httpx.ConnectError as e:
-        raise VoiceError("連不到電腦上的 BreezyVoice（docker compose 有開嗎？）") from e
+        raise VoiceError(f"連不到 TTS 服務（{url}）") from e
     except httpx.TimeoutException as e:
-        raise VoiceError("BreezyVoice 太久沒回應") from e
+        raise VoiceError("TTS 服務太久沒回應") from e
     if r.status_code != 200:
-        raise VoiceError(f"BreezyVoice 回應 {r.status_code}")
+        raise VoiceError(f"TTS 服務回應 {r.status_code}")
     return _wav_to_pcm16k(r.content)
+
+
+async def synthesize(client: httpx.AsyncClient, text: str) -> bytes:
+    if str(_cfg().get("engine", "piper")) == "http":
+        return await _http_synth(client, text)
+    return await _piper_synth(text)
 
 
 # ---------------------------------------------------------------------------

@@ -12,8 +12,5 @@ bridge/last_input.wav
 m5stick/include/secrets.h
 m5stick/.pio/
 
-# 電腦端語音服務：自己的設定、聲音檔、clone 下來的 BreezyVoice
-pc_voice/.env
-pc_voice/voices/*
-!pc_voice/voices/.gitkeep
-pc_voice/BreezyVoice/
+# Piper 聲音檔（自動下載）
+bridge/voices/

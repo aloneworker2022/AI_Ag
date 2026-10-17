@@ -189,7 +189,7 @@ async def _respond(dev: Device, msg_id: Any, get_text: Callable[[], Awaitable[st
                 if dev.approval is fut:
                     dev.approval = None
 
-        # 語音模式：回覆一邊產生，一邊切句子交給 BreezyVoice 念；文字也邊產生邊顯示
+        # 語音模式：回覆一邊產生，一邊切句子合成語音念出來；文字也邊產生邊顯示
         speaker = None
         if voice.enabled() and dev.online:
             dev.stop_voice()

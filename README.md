@@ -1,7 +1,9 @@
 # M5StickS3 × Hermes Agent
 
 對著 M5StickS3 說話，由 [Hermes Agent](https://github.com/NousResearch/hermes-agent)
-（Nous Research 的開源 agent）回答，回覆文字顯示在 Stick 螢幕上。
+（Nous Research 的開源 agent）回答，回覆文字顯示在 Stick 螢幕上；
+開啟語音模式後，還會用台灣腔（聯發科 BreezyVoice）一邊想一邊說出來，可以隨時插話。
+全部免費，在自己的機器上跑。
 
 ```
 M5StickS3 ──Wi-Fi(WebSocket)──▶ Raspberry Pi 5                       你的電腦
@@ -17,6 +19,7 @@ M5StickS3 ──Wi-Fi(WebSocket)──▶ Raspberry Pi 5                       �
 | `bridge/` | Raspberry Pi 5 | 收 Stick 的語音 → Whisper 轉文字 → 呼叫 Hermes → 回傳文字 |
 | Hermes Agent | Raspberry Pi 5 | agent 本體：對話歷史、長期記憶、skills、工具 |
 | 模型伺服器 | 你的電腦 | Ollama / LM Studio 等 OpenAI 相容服務，給 Hermes 用 |
+| `pc_voice/` 語音服務（選用） | 你的電腦 | BreezyVoice 台灣腔語音合成 + Breeze ASR 25 台灣華語辨識，見 [pc_voice/README.md](pc_voice/README.md) |
 
 ## 1. 電腦：準備模型
 
@@ -79,14 +82,19 @@ python -m bridge
 - 開機自動啟動：見 `bridge/systemd/m5stick-bridge.service`。
 - 檢查：`curl http://<PiIP>:3799/health`、`curl http://<PiIP>:3799/devices`。
 
-## 4. Stick：燒錄韌體
+## 4. 電腦：語音服務（選用，要語音回覆才需要）
+
+見 [pc_voice/README.md](pc_voice/README.md)：Docker Desktop 一鍵啟動 BreezyVoice 與 Breeze ASR，
+再在 Pi 的 `bridge/config.yaml` 開 `voice.enabled`、`stt.engine: remote`。
+
+## 5. Stick：燒錄韌體
 
 見 [m5stick/README.md](m5stick/README.md)：燒錄、Wi-Fi 設定（多組、手機熱點切換）、按鍵操作、協定。
 
 ## 用起來
 
 - **按住 A 說話**，放開送出 → 螢幕顯示「辨識中」→ 你說的話 →
-  Hermes 用了哪些工具（例如「使用工具：web_search」）→ 回覆。
+  Hermes 用了哪些工具（例如「使用工具：web_search」）→ 回覆（語音模式會一邊產生一邊念出來，AI 講話時按住 A 可以直接插話）。
 - Hermes 要執行需要核准的指令時，Stick 會顯示指令內容：**A 允許一次、B 拒絕**（2 分鐘沒按就拒絕）。
 - 對話會一直接續（Hermes 記得前面講過什麼）。想重新開始：首頁**連按兩下 B**，
   或說「開新對話」。

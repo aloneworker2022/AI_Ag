@@ -27,7 +27,11 @@ hermes:
   approval_timeout: 120
 
 stt:
-  # 語音轉文字（本地 faster-whisper）。Pi 5 建議 small（中文較準）；嫌慢改 base。
+  # whisper = 在 Pi 上用 faster-whisper；remote = 交給 Win11 電腦上的 Breeze ASR 25（台灣華語，較準較快）
+  engine: whisper
+  remote_url: http://192.168.68.XX:8081/asr   # 換成電腦的 IP
+  remote_token: ""                            # 跟 pc_voice/.env 的 VOICE_TOKEN 一樣（沒設就留空）
+  # 以下是 engine: whisper 用的設定。Pi 5 建議 small（中文較準）；嫌慢改 base。
   # 第一次用會自動下載模型（Pi 要能上網一次）。
   model: small
   language: zh
@@ -38,3 +42,14 @@ stt:
   max_seconds: 30          # 一段話最長幾秒
   download_root: ""        # 模型存放位置，留空 = 預設快取
   save_last_wav: false     # 診斷用：true = 把最後一段收到的語音存成 bridge/last_input.wav
+
+voice:
+  # true = 回覆用 Win11 電腦上的 BreezyVoice（台灣腔）一邊產生一邊念出來
+  enabled: false
+  tts_url: http://192.168.68.XX:8080/audio/speech   # 換成電腦的 IP
+  timeout: 30
+  # 語音模式時加給 Hermes 的說話方式（讓它像在聊天，而不是寫文章）
+  style_prompt: >-
+    現在是語音聊天，你的回覆會直接被念出來。請像朋友講電話一樣自然口語：
+    一次一到三句、句子短，可以用「嗯」「對啊」這類語氣詞；
+    不要列點、不要標題、不要念網址或程式碼，數字用口語說法。

@@ -31,6 +31,8 @@ class TurnCallbacks:
     on_status: Callable[[str], Awaitable[None]]
     # 收到核准請求：回傳 "once" 或 "deny"
     on_approval: Callable[[dict[str, Any]], Awaitable[str]]
+    # 回覆文字一邊產生一邊交出來（語音模式用來一句一句先念）
+    on_delta: Callable[[str], Awaitable[None]] | None = None
 
 
 def _cfg() -> dict[str, Any]:
@@ -96,13 +98,15 @@ async def _approve(client: httpx.AsyncClient, event: dict[str, Any], choice: str
         log.warning("approval request failed: %s", e)
 
 
-async def run_turn(text: str, *, session_id: str, session_key: str, cb: TurnCallbacks) -> str:
+async def run_turn(text: str, *, session_id: str, session_key: str, cb: TurnCallbacks,
+                   extra_system: str = "") -> str:
     """送一句話給 Hermes，等它（可能用了一堆工具後）回覆，回傳最終文字。"""
     cfg = _cfg()
     url = f"{cfg['base_url'].rstrip('/')}/chat/completions"
     messages = []
-    if cfg.get("system_prompt"):
-        messages.append({"role": "system", "content": cfg["system_prompt"]})
+    system = "\n".join(x for x in (cfg.get("system_prompt"), extra_system) if x)
+    if system:
+        messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": text})
     body = {"model": cfg.get("model", "hermes-agent"), "messages": messages, "stream": True}
 
@@ -164,6 +168,8 @@ async def run_turn(text: str, *, session_id: str, session_key: str, cb: TurnCall
                             delta = choice.get("delta") or {}
                             if delta.get("content"):
                                 parts.append(delta["content"])
+                                if cb.on_delta is not None:
+                                    await cb.on_delta(delta["content"])
                             if choice.get("finish_reason"):
                                 finish = choice["finish_reason"]
     except httpx.ConnectError as e:

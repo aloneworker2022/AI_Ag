@@ -47,6 +47,7 @@
 #include <M5Unified.h>
 #include <functional>
 #include <freertos/queue.h>
+#include <freertos/semphr.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <WebSocketsClient.h>
@@ -221,6 +222,8 @@ class Ui {
   // 長按 B 時的提示（放開會做什麼）
   void showHint(const String& hint);
   void showReply(const String& title, const String& text);
+  // 回覆一邊產生一邊顯示：永遠捲到最後幾行
+  void showReplyLive(const String& title, const String& text);
   // Hermes 要執行需要核准的指令：A 允許一次、B 拒絕
   void showApproval(const String& command, const String& description);
 
@@ -346,6 +349,17 @@ void Ui::showReply(const String& title, const String& text) {
   title_ = title;
   body_ = text;
   scroll_ = 0;
+  render();
+}
+
+void Ui::showReplyLive(const String& title, const String& text) {
+  mode_ = Mode::Reply;
+  title_ = title;
+  body_ = text;
+  canvas.setFont(BIG);
+  int total = wrap(body_, W - PAD * 2).size();
+  int visible = bigLines(TOP, H);
+  scroll_ = max(0, total - visible);
   render();
 }
 
@@ -649,6 +663,193 @@ void Recorder::stop(const ChunkFn& onChunk) {
 
 uint32_t Recorder::dropped() const { return recDropped; }
 
+// ===== player.h =====
+// 播放 Pi 傳來的語音回覆（16-bit 單聲道 PCM），邊收邊播。
+// StickS3 的喇叭和麥克風共用 codec：播放時先關麥克風，播完再切回來。
+
+
+class Player {
+ public:
+  void begin();  // 建立背景播放工作（setup 時呼叫一次）
+  void start(int id, uint32_t sampleRate);
+  void feed(const uint8_t* data, size_t len);  // 收到的語音片段
+  void finish(int id);                         // Pi 說這段送完了，播完就結束
+  void stop();                                 // 立刻停止（例如使用者按 A 要說話）
+  void loop();  // 由背景工作呼叫
+
+  bool active() const { return active_; }
+  int id() const { return id_; }
+
+ private:
+  void queueCurrent();
+  void end();
+
+  volatile bool active_ = false;
+  bool finished_ = false;
+  int id_ = -1;
+  uint32_t rate_ = 16000;
+};
+
+extern Player player;
+
+// ===== player.cpp =====
+Player player;
+
+// 名稱加 play 前綴：Arduino 單檔版會把所有模組合在一起，避免跟 recorder 撞名
+namespace {
+// 每段 2048 樣本 = 128 ms，共 16 段 ≈ 2 秒緩衝（Pi 最多只會超前約 0.8 秒）
+constexpr size_t PLAY_CHUNK = 2048;
+constexpr size_t PLAY_POOL = 16;
+constexpr uint8_t PLAY_CH = 0;           // 喇叭聲道
+constexpr uint8_t PLAY_VOLUME = 160;     // 0–255
+int16_t playPool[PLAY_POOL][PLAY_CHUNK];
+size_t playLen[PLAY_POOL];
+QueueHandle_t playFreeQ = nullptr;      // 可以拿來裝資料的緩衝（喇叭播完放回來）
+int playReadyQ[PLAY_POOL];                   // 裝好、等著送給喇叭的緩衝（只在 loop 裡用）
+size_t playHead = 0, playCount = 0;
+int playCur = -1;                       // 正在裝資料的緩衝
+size_t playFill = 0;                 // 已裝的 byte 數
+uint8_t playCarry = 0;                  // 跨片段的奇數 byte
+bool playHasCarry = false;
+SemaphoreHandle_t playLock = nullptr;   // 主迴圈（收資料）和背景工作（餵喇叭）共用狀態
+
+struct PlayGuard {
+  PlayGuard() { xSemaphoreTake(playLock, portMAX_DELAY); }
+  ~PlayGuard() { xSemaphoreGive(playLock); }
+};
+
+int playIndexOf(const void* p) {
+  for (size_t i = 0; i < PLAY_POOL; i++) {
+    if (p == playPool[i]) return i;
+  }
+  return -1;
+}
+
+// 喇叭播完一段時呼叫（喇叭的工作執行緒）：只把緩衝放回 playFreeQ
+void onPlayReleased(void*, const void* data, uint8_t) {
+  int i = playIndexOf(data);
+  if (i >= 0) xQueueSend(playFreeQ, &i, 0);
+}
+
+// 背景工作：每 4 ms 檢查一次，喇叭有空位就補資料。不受畫面重畫、網路卡頓影響。
+void playTask(void*) {
+  for (;;) {
+    player.loop();
+    vTaskDelay(pdMS_TO_TICKS(4));
+  }
+}
+
+void resetPlayPool() {
+  xQueueReset(playFreeQ);
+  for (int i = 0; i < (int)PLAY_POOL; i++) xQueueSend(playFreeQ, &i, 0);
+  playHead = playCount = 0;
+  playCur = -1;
+  playFill = 0;
+  playHasCarry = false;
+}
+}  // namespace
+
+void Player::begin() {
+  playFreeQ = xQueueCreate(PLAY_POOL, sizeof(int));
+  playLock = xSemaphoreCreateMutex();
+  xTaskCreatePinnedToCore(playTask, "play", 3072, nullptr, 3, nullptr, 1);
+}
+
+void Player::start(int id, uint32_t sampleRate) {
+  if (active_) stop();
+  PlayGuard g;
+  resetPlayPool();
+  id_ = id;
+  rate_ = sampleRate;
+  finished_ = false;
+  // 麥克風 → 喇叭
+  M5.Mic.end();
+  M5.Speaker.setBufferReleaseCallback(nullptr, onPlayReleased);
+  M5.Speaker.begin();
+  M5.Speaker.setVolume(PLAY_VOLUME);
+  active_ = true;
+}
+
+void Player::queueCurrent() {
+  if (playCur < 0 || playFill < 2) return;
+  playLen[playCur] = playFill / 2;
+  playReadyQ[(playHead + playCount) % PLAY_POOL] = playCur;
+  playCount++;
+  playCur = -1;
+  playFill = 0;
+}
+
+void Player::feed(const uint8_t* data, size_t len) {
+  if (!active_ || finished_) return;
+  PlayGuard g;
+  uint8_t* dst = nullptr;
+  while (len > 0) {
+    if (playCur < 0) {
+      if (xQueueReceive(playFreeQ, &playCur, 0) != pdTRUE) {
+        playCur = -1;
+        return;  // 緩衝滿了（不該發生，Pi 有控制速度），丟掉
+      }
+      playFill = 0;
+    }
+    dst = reinterpret_cast<uint8_t*>(playPool[playCur]);
+    if (playHasCarry) {  // 上一片段剩下的奇數 byte
+      dst[playFill++] = playCarry;
+      playHasCarry = false;
+    }
+    size_t room = PLAY_CHUNK * 2 - playFill;
+    size_t n = min(room, len);
+    memcpy(dst + playFill, data, n);
+    playFill += n;
+    data += n;
+    len -= n;
+    if (playFill == PLAY_CHUNK * 2) queueCurrent();
+  }
+  if (playFill % 2) {  // 樣本不能拆半，奇數 byte 留給下一片段
+    playCarry = dst[--playFill];
+    playHasCarry = true;
+  }
+}
+
+void Player::finish(int id) {
+  if (!active_ || id != id_) return;
+  PlayGuard g;
+  queueCurrent();
+  finished_ = true;
+}
+
+void Player::loop() {
+  if (!active_) return;
+  PlayGuard g;
+  if (!active_) return;
+  // 喇叭同時最多排 2 段；有空位就把裝好的送進去
+  while (playCount > 0 && M5.Speaker.isPlaying(PLAY_CH) < 2) {
+    int i = playReadyQ[playHead];
+    if (!M5.Speaker.playRaw(playPool[i], playLen[i], rate_, false, 1, PLAY_CH, false)) break;
+    playHead = (playHead + 1) % PLAY_POOL;
+    playCount--;
+  }
+  // 片段太久沒湊滿一段（例如句子之間），先把手上的播掉
+  if (playCount == 0 && playCur >= 0 && playFill >= 2 && M5.Speaker.isPlaying(PLAY_CH) == 0) queueCurrent();
+  if (finished_ && playCount == 0 && playCur < 0 && M5.Speaker.isPlaying(PLAY_CH) == 0) end();
+}
+
+void Player::stop() {
+  if (!active_) return;
+  PlayGuard g;
+  if (!active_) return;
+  M5.Speaker.stop();
+  end();
+}
+
+void Player::end() {
+  // 喇叭 → 麥克風
+  M5.Speaker.end();
+  M5.Mic.begin();
+  active_ = false;
+  finished_ = false;
+  id_ = -1;
+}
+
 // ===== wifi_manager.h =====
 // 多組 Wi-Fi：依清單順序找第一個「附近有、連得上」的網路。
 // 斷線會自動重找；也可以手動切到清單裡的下一組（例如從家裡 Wi-Fi 切到手機熱點）。
@@ -811,8 +1012,10 @@ bool WifiManager::connectBest(int after) {
 class Link {
  public:
   using MessageFn = std::function<void(JsonDocument&)>;
+  using BinaryFn = std::function<void(const uint8_t*, size_t)>;
 
   void onMessage(MessageFn fn) { onMessage_ = fn; }
+  void onBinary(BinaryFn fn) { onBinary_ = fn; }  // Pi 傳來的二進位（語音回覆）
 
   // Wi-Fi 換了就重新呼叫，會改連到該網路對應的 Pi 位址
   void start(const String& host, uint16_t port);
@@ -834,6 +1037,7 @@ class Link {
 
  private:
   MessageFn onMessage_;
+  BinaryFn onBinary_;
   String host_;
   bool started_ = false;
   bool ready_ = false;
@@ -844,7 +1048,7 @@ extern Link piLink;
 
 // ===== link.cpp =====
 #ifndef FW_VERSION
-#define FW_VERSION "0.3.1"
+#define FW_VERSION "0.4.0"
 #endif
 
 Link piLink;
@@ -891,6 +1095,9 @@ void Link::start(const String& host, uint16_t port) {
       case WStype_DISCONNECTED:
         if (ready_) Serial.println("[link] 斷線，稍後自動重連");
         ready_ = false;
+        break;
+      case WStype_BIN:
+        if (onBinary_) onBinary_(payload, length);
         break;
       case WStype_TEXT: {
         JsonDocument doc;
@@ -1169,6 +1376,7 @@ void runSetupPortal() {
 //   B 單按：回覆畫面往下捲，捲到底回首頁
 //   B 在首頁連按兩下：開新對話（Hermes 換新 session）
 //   Hermes 要求核准指令時：A 允許一次、B 拒絕
+//   語音模式下 AI 說話（或還在想）時按住 A：直接插話
 //   B 長按 1.5 秒放開：切換到清單裡的下一組 Wi-Fi（家裡 ⇄ 手機熱點）
 //   B 長按 5 秒放開：進入設定模式（用手機設定 Wi-Fi、Pi 位址、token）
 // 序列埠：在 serial monitor 打一行字按 Enter，會當成文字訊息送給 Pi（測試用）。
@@ -1187,6 +1395,7 @@ int waitingId = -1;  // 等 Pi 回覆中的訊息 id
 uint32_t waitingSince = 0;
 int audioId = -1;    // 錄音串流中的訊息 id
 String said;         // 辨識出來的話
+int lastReplyId = -1;  // 最近一次的回覆，語音只播這一則
 String agentName = "Hermes";
 bool approvalPending = false;
 uint32_t lastHomeClickAt = 0;
@@ -1222,7 +1431,10 @@ void streamChunk(const int16_t* data, size_t n) {
 }
 
 void startSpeaking() {
-  if (waitingId >= 0) return;  // 上一句還沒回
+  if (approvalPending) return;
+  // 插話：AI 正在說或還在想，都直接打斷（Pi 收到 audio_start 會停止念、取消上一輪）
+  if (player.active()) player.stop();
+  if (waitingId >= 0) waitingId = -1;
   if (!piLink.ready()) {
     showNotConnected();
     return;
@@ -1280,10 +1492,19 @@ void onPiMessage(JsonDocument& doc) {
     String cmd = doc["command"] | "";
     Serial.printf("[approval] %s（A 允許 / B 拒絕）\n", cmd.c_str());
     ui.showApproval(cmd, doc["description"] | "");
+  } else if (type == "reply_partial") {
+    if (id != waitingId || approvalPending) return;
+    ui.showReplyLive(agentName, doc["text"] | "");  // 一邊產生一邊顯示
+  } else if (type == "audio_reply_start") {
+    if ((id != waitingId && id != lastReplyId) || recorder.recording()) return;
+    player.start(id, doc["rate"] | 16000);
+  } else if (type == "audio_reply_end") {
+    player.finish(id);
   } else if (type == "reply") {
     if (id != waitingId) return;  // 過期的回覆（例如逾時後才到）
     waitingId = -1;
     approvalPending = false;
+    lastReplyId = id;
     String text = doc["text"] | "";
     Serial.printf("%s：%s\n", agentName.c_str(), text.c_str());
     ui.showReply(agentName, text);
@@ -1407,12 +1628,14 @@ void setup() {
                 psramFound() ? "有" : "沒有", ESP.getPsramSize());
 
   recorder.begin();
+  player.begin();
   Serial.printf("[boot] 麥克風：%s\n", M5.Mic.isEnabled() ? "OK" : "失敗");
 
   settingsLoad();
   if (settings.networkCount == 0) runSetupPortal();  // 第一次用：直接進設定
 
   piLink.onMessage(onPiMessage);
+  piLink.onBinary([](const uint8_t* data, size_t len) { player.feed(data, len); });
   wifi.begin(onWifiStatus);
 }
 
@@ -1450,7 +1673,7 @@ void loop() {
 
   // Wi-Fi 省電：待機時開著省電；說話、等回覆時暫時關掉，連線比較穩
   static bool sleepOn = true;
-  bool busy = recorder.recording() || waitingId >= 0;
+  bool busy = recorder.recording() || waitingId >= 0 || player.active();
   if (busy == sleepOn && wifi.connected()) {
     sleepOn = !busy;
     WiFi.setSleep(sleepOn);

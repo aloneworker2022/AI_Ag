@@ -13,7 +13,7 @@ SRC = ROOT / "src"
 OUT = ROOT / "arduino" / "AIStick" / "AIStick.ino"
 
 # 依相依順序排列
-ORDER = ["settings", "ui", "recorder", "wifi_manager", "link", "setup_portal"]
+ORDER = ["settings", "ui", "recorder", "player", "wifi_manager", "link", "setup_portal"]
 
 HEADER = """\
 // =====================================================================

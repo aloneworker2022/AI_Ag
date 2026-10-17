@@ -55,6 +55,7 @@ Stick 最多記 6 組 Wi-Fi，**排越前面越優先**。開機時會掃描附�
 | **B 按住 1.5 秒放開** | 切到清單裡的下一組 Wi-Fi |
 | **B 按住 5 秒放開** | 進設定模式 |
 | 核准畫面：**A / B** | Hermes 要執行需要核准的指令時：A 允許一次、B 拒絕 |
+| AI 說話或還在想時按住 **A** | 直接插話（停止播放、取消上一輪）；只點一下 = 叫它閉嘴 |
 
 按住 B 時螢幕下方會提示「放開會做什麼」。
 
@@ -93,7 +94,12 @@ curl -X POST http://<pi>:3799/devices/stick/notify \
 | Pi → Stick | `status` | `id`, `text` | Hermes 狀態（例如等待模型） |
 | Pi → Stick | `approval` | `id`, `command`, `description` | 需要核准的指令 |
 | Stick → Pi | `approval_reply` | `id`, `choice`=`once`/`deny` | 核准結果 |
+| Pi → Stick | `reply_partial` | `id`, `text` | 回覆產生到一半的文字（每 0.4 秒更新） |
 | Pi → Stick | `reply` | `id`, `text` | Hermes 的回覆 |
+| Pi → Stick | `audio_reply_start` | `id`, `format`=`pcm_s16le`, `rate` | 語音模式：開始念 |
+| Pi → Stick | （二進位） | 16-bit 單聲道 PCM | 語音回覆，Pi 照播放速度送 |
+| Pi → Stick | `audio_reply_end` | `id` | 念完 |
+| Stick → Pi | `tts_stop` | | 停止念 |
 | Stick → Pi | `new_session` | | 開新對話 |
 | Pi → Stick | `notify` | `title`, `text` | Pi 主動推的訊息 |
 | Pi → Stick | `error` | `id`?, `message` | 錯誤（例如「沒聽清楚，再說一次」「連不到 Hermes」） |
@@ -105,6 +111,7 @@ curl -X POST http://<pi>:3799/devices/stick/notify \
 |---|---|
 | `src/main.cpp` | 按鍵、畫面流程 |
 | `src/recorder.*` | 麥克風錄音、分段串流 |
+| `src/player.*` | 播放語音回覆（背景工作邊收邊播） |
 | `src/wifi_manager.*` | 多組 Wi-Fi 選擇、斷線重找、手動切換 |
 | `src/setup_portal.*` | 設定模式（熱點 + 網頁） |
 | `src/settings.*` | 設定讀寫（NVS） |

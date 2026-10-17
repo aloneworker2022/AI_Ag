@@ -99,6 +99,17 @@ void Ui::showReply(const String& title, const String& text) {
   render();
 }
 
+void Ui::showReplyLive(const String& title, const String& text) {
+  mode_ = Mode::Reply;
+  title_ = title;
+  body_ = text;
+  canvas.setFont(BIG);
+  int total = wrap(body_, W - PAD * 2).size();
+  int visible = bigLines(TOP, H);
+  scroll_ = max(0, total - visible);
+  render();
+}
+
 void Ui::showApproval(const String& command, const String& description) {
   mode_ = Mode::Approval;
   title_ = description;

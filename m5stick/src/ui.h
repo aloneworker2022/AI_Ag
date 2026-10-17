@@ -21,6 +21,8 @@ class Ui {
   // 長按 B 時的提示（放開會做什麼）
   void showHint(const String& hint);
   void showReply(const String& title, const String& text);
+  // 回覆一邊產生一邊顯示：永遠捲到最後幾行
+  void showReplyLive(const String& title, const String& text);
   // Hermes 要執行需要核准的指令：A 允許一次、B 拒絕
   void showApproval(const String& command, const String& description);
 

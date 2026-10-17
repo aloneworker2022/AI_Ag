@@ -11,3 +11,9 @@ bridge/last_input.wav
 # M5StickS3 韌體：自己的 Wi-Fi 密碼與 token、PlatformIO 編譯產物
 m5stick/include/secrets.h
 m5stick/.pio/
+
+# 電腦端語音服務：自己的設定、聲音檔、clone 下來的 BreezyVoice
+pc_voice/.env
+pc_voice/voices/*
+!pc_voice/voices/.gitkeep
+pc_voice/BreezyVoice/

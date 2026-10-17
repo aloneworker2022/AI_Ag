@@ -243,7 +243,25 @@ async def _handle_chat(dev: Device, msg: dict[str, Any]) -> None:
     await _respond(dev, msg.get("id"), get_text)
 
 
+def _save_wav(pcm: bytes, rate: int) -> None:
+    """診斷用：把最後一段收到的語音存成 bridge/last_input.wav，可以拿去聽看看收音品質。"""
+    import wave
+    from .config import BRIDGE_DIR
+    with wave.open(str(BRIDGE_DIR / "last_input.wav"), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm)
+
+
 async def _handle_voice(dev: Device, msg_id: Any, pcm: bytes, rate: int) -> None:
+    log.info("%s: 收到 %.1f 秒語音", dev.name, len(pcm) / (rate * 2))
+    if section("stt").get("save_last_wav"):
+        try:
+            _save_wav(pcm, rate)
+        except OSError as e:
+            log.warning("save wav failed: %s", e)
+
     async def get_text() -> str:
         await dev.send({"type": "transcribing", "id": msg_id})
         text = await stt.transcribe(pcm, rate)

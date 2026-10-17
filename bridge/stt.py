@@ -75,6 +75,7 @@ def _transcribe_sync(pcm: bytes, rate: int) -> str:
         beam_size=int(cfg.get("beam_size", 1)),
         initial_prompt=cfg.get("initial_prompt") or None,
         vad_filter=True,
+        condition_on_previous_text=False,  # 短句不需要，關掉比較不會亂接字
     )
     text = "".join(s.text for s in segments).strip()
     if _converter is not None:

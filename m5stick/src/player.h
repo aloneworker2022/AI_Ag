@@ -6,11 +6,12 @@
 
 class Player {
  public:
+  void begin();  // 建立背景播放工作（setup 時呼叫一次）
   void start(int id, uint32_t sampleRate);
   void feed(const uint8_t* data, size_t len);  // 收到的語音片段
   void finish(int id);                         // Pi 說這段送完了，播完就結束
   void stop();                                 // 立刻停止（例如使用者按 A 要說話）
-  void loop();
+  void loop();  // 由背景工作呼叫
 
   bool active() const { return active_; }
   int id() const { return id_; }
@@ -19,7 +20,7 @@ class Player {
   void queueCurrent();
   void end();
 
-  bool active_ = false;
+  volatile bool active_ = false;
   bool finished_ = false;
   int id_ = -1;
   uint32_t rate_ = 16000;

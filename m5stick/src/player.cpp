@@ -2,6 +2,7 @@
 
 #include <M5Unified.h>
 #include <freertos/queue.h>
+#include <freertos/semphr.h>
 
 Player player;
 
@@ -21,6 +22,12 @@ int playCur = -1;                       // 正在裝資料的緩衝
 size_t playFill = 0;                 // 已裝的 byte 數
 uint8_t playCarry = 0;                  // 跨片段的奇數 byte
 bool playHasCarry = false;
+SemaphoreHandle_t playLock = nullptr;   // 主迴圈（收資料）和背景工作（餵喇叭）共用狀態
+
+struct PlayGuard {
+  PlayGuard() { xSemaphoreTake(playLock, portMAX_DELAY); }
+  ~PlayGuard() { xSemaphoreGive(playLock); }
+};
 
 int playIndexOf(const void* p) {
   for (size_t i = 0; i < PLAY_POOL; i++) {
@@ -35,6 +42,14 @@ void onPlayReleased(void*, const void* data, uint8_t) {
   if (i >= 0) xQueueSend(playFreeQ, &i, 0);
 }
 
+// 背景工作：每 4 ms 檢查一次，喇叭有空位就補資料。不受畫面重畫、網路卡頓影響。
+void playTask(void*) {
+  for (;;) {
+    player.loop();
+    vTaskDelay(pdMS_TO_TICKS(4));
+  }
+}
+
 void resetPlayPool() {
   xQueueReset(playFreeQ);
   for (int i = 0; i < (int)PLAY_POOL; i++) xQueueSend(playFreeQ, &i, 0);
@@ -45,9 +60,15 @@ void resetPlayPool() {
 }
 }  // namespace
 
+void Player::begin() {
+  playFreeQ = xQueueCreate(PLAY_POOL, sizeof(int));
+  playLock = xSemaphoreCreateMutex();
+  xTaskCreatePinnedToCore(playTask, "play", 3072, nullptr, 3, nullptr, 1);
+}
+
 void Player::start(int id, uint32_t sampleRate) {
-  if (!playFreeQ) playFreeQ = xQueueCreate(PLAY_POOL, sizeof(int));
   if (active_) stop();
+  PlayGuard g;
   resetPlayPool();
   id_ = id;
   rate_ = sampleRate;
@@ -71,6 +92,7 @@ void Player::queueCurrent() {
 
 void Player::feed(const uint8_t* data, size_t len) {
   if (!active_ || finished_) return;
+  PlayGuard g;
   uint8_t* dst = nullptr;
   while (len > 0) {
     if (playCur < 0) {
@@ -101,11 +123,14 @@ void Player::feed(const uint8_t* data, size_t len) {
 
 void Player::finish(int id) {
   if (!active_ || id != id_) return;
+  PlayGuard g;
   queueCurrent();
   finished_ = true;
 }
 
 void Player::loop() {
+  if (!active_) return;
+  PlayGuard g;
   if (!active_) return;
   // 喇叭同時最多排 2 段；有空位就把裝好的送進去
   while (playCount > 0 && M5.Speaker.isPlaying(PLAY_CH) < 2) {
@@ -120,6 +145,8 @@ void Player::loop() {
 }
 
 void Player::stop() {
+  if (!active_) return;
+  PlayGuard g;
   if (!active_) return;
   M5.Speaker.stop();
   end();

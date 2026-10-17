@@ -264,6 +264,7 @@ void setup() {
                 psramFound() ? "有" : "沒有", ESP.getPsramSize());
 
   recorder.begin();
+  player.begin();
   Serial.printf("[boot] 麥克風：%s\n", M5.Mic.isEnabled() ? "OK" : "失敗");
 
   settingsLoad();
@@ -288,7 +289,6 @@ void loop() {
     }
   }
   piLink.loop();
-  player.loop();
 
   if (recorder.recording()) {
     recorder.loop(streamChunk);
@@ -300,7 +300,7 @@ void loop() {
       stopSpeaking();  // 太長自動送出
     } else {
       static uint32_t lastDraw = 0;
-      if (millis() - lastDraw > 100) {
+      if (millis() - lastDraw > 250) {  // 少畫幾次，把時間留給錄音
         lastDraw = millis();
         ui.showRecording(recorder.elapsedMs(), recorder.level());
       }

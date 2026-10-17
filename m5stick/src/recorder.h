@@ -1,4 +1,5 @@
 // 麥克風錄音：16 kHz、16-bit 單聲道，一邊錄一邊把小段 PCM 交給呼叫端（傳給 Pi）。
+// 排緩衝給麥克風的工作在背景執行，loop() 只負責把錄好的段落送出去。
 #pragma once
 
 #include <Arduino.h>
@@ -20,13 +21,13 @@ class Recorder {
   bool recording() const { return recording_; }
   uint32_t elapsedMs() const { return recording_ ? millis() - startedAt_ : 0; }
   int level() const { return level_; }  // 最近一段的音量 0–100，給畫面用
+  uint32_t dropped() const;             // 這次錄音掉了幾段（診斷用）
 
  private:
   void drain(const ChunkFn& onChunk);
 
   bool recording_ = false;
   uint32_t startedAt_ = 0;
-  size_t next_ = 0;
   int level_ = 0;
 };
 

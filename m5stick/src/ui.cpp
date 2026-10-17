@@ -164,7 +164,13 @@ void Ui::drawStatusBar() {
   String left = showTitle ? title_ : (wifiName_.length() ? wifiName_ : String("無網路"));
   canvas.drawString(left.c_str(), PAD, 1);
 
-  int level = M5.Power.getBatteryLevel();
+  // 電量每 30 秒才讀一次（每次讀都要走 I2C，重畫很頻繁時會拖慢）
+  static int level = -1;
+  static uint32_t readAt = 0;
+  if (readAt == 0 || millis() - readAt > 30000) {
+    level = M5.Power.getBatteryLevel();
+    readAt = millis();
+  }
   int right = W - PAD;
   if (level >= 0) {
     String bat = String(level) + "%";

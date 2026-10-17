@@ -16,6 +16,7 @@ struct Settings {
   String serverHost;
   uint16_t serverPort = 3799;
   uint8_t volume = 160;  // 喇叭音量 0–255
+  bool voiceOn = true;   // false = 不說話（只顯示文字）
   String token;
   NetworkEntry networks[MAX_NETWORKS];
   int networkCount = 0;

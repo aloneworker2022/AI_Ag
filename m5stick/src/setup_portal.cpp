@@ -91,7 +91,7 @@ void handleRoot() {
   h += esc(settings.serverHost);
   h += F("' required>Port<input name='port' type='number' min='1' max='65535' value='");
   h += String(settings.serverPort);
-  h += F("'>喇叭音量（0–255，平常也可以按 Stick 側邊電源鍵切換）<input name='vol' type='number' min='0' max='255' value='");
+  h += F("'>喇叭音量（0–255，平常也可以長按 B → 音量 調整）<input name='vol' type='number' min='0' max='255' value='");
   h += String(settings.volume);
   h += F("'>Token（跟 Pi 的 bridge/config.yaml device.token 一樣；留空 = 不改）<input name='token' type='password'>"
          "裝置名稱<input name='device' maxlength='32' value='");

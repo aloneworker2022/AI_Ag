@@ -68,7 +68,8 @@ Stick 最多記 6 組 Wi-Fi，**排越前面越優先**。開機時會掃描附�
 │  ├ 手機設定模式（Stick 開熱點，用手機網頁設定 Wi-Fi、Pi 位址、token、音量）
 │  └ 離開
 ├ 音量
-│  ├ 1 小聲 / 2 / 3 / 4 / 5 最大（● = 目前；選了會嗶一聲讓你試聽）
+│  ├ 不說話（關掉語音，只顯示文字；Pi 也不會合成聲音）
+│  ├ 1 小聲 / 2 / 3 / 4 / 5 最大（● = 目前；選了會嗶一聲讓你試聽，也會重新開啟語音）
 │  └ 離開
 └ 離開
 ```
@@ -114,6 +115,7 @@ curl -X POST http://<pi>:3799/devices/stick/notify \
 | Pi → Stick | （二進位） | 16-bit 單聲道 PCM | 語音回覆，Pi 照播放速度送 |
 | Pi → Stick | `audio_reply_end` | `id` | 念完 |
 | Stick → Pi | `tts_stop` | | 停止念 |
+| Stick → Pi | `voice_mode` | `enabled` | 開／關語音回覆（`hello` 也會帶 `voice`） |
 | Stick → Pi | `new_session` | | 開新對話 |
 | Pi → Stick | `notify` | `title`, `text` | Pi 主動推的訊息 |
 | Pi → Stick | `error` | `id`?, `message` | 錯誤（例如「沒聽清楚，再說一次」「連不到 Hermes」） |

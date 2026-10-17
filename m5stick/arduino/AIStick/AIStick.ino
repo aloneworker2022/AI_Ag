@@ -71,6 +71,7 @@ struct Settings {
   String serverHost;
   uint16_t serverPort = 3799;
   uint8_t volume = 160;  // 喇叭音量 0–255
+  bool voiceOn = true;   // false = 不說話（只顯示文字）
   String token;
   NetworkEntry networks[MAX_NETWORKS];
   int networkCount = 0;
@@ -109,6 +110,7 @@ void loadDefaults() {
   settings.serverHost = DEFAULT_SERVER_HOST;
   settings.serverPort = DEFAULT_SERVER_PORT;
   settings.volume = 160;
+  settings.voiceOn = true;
   settings.token = DEFAULT_TOKEN;
   static const DefaultNet defaults[] = DEFAULT_NETWORKS;
   for (const auto& n : defaults) {
@@ -168,6 +170,7 @@ void settingsLoad() {
   settings.serverHost = doc["host"] | DEFAULT_SERVER_HOST;
   settings.serverPort = doc["port"] | DEFAULT_SERVER_PORT;
   settings.volume = doc["vol"] | 160;
+  settings.voiceOn = doc["voice"] | true;
   settings.token = doc["token"] | DEFAULT_TOKEN;
   for (JsonObject n : doc["nets"].as<JsonArray>()) {
     settings.addNetwork(n["ssid"] | "", n["pass"] | "", n["host"] | "");
@@ -180,6 +183,7 @@ void settingsSave() {
   doc["host"] = settings.serverHost;
   doc["port"] = settings.serverPort;
   doc["vol"] = settings.volume;
+  doc["voice"] = settings.voiceOn;
   doc["token"] = settings.token;
   JsonArray nets = doc["nets"].to<JsonArray>();
   for (int i = 0; i < settings.networkCount; i++) {
@@ -1145,7 +1149,7 @@ extern Link piLink;
 
 // ===== link.cpp =====
 #ifndef FW_VERSION
-#define FW_VERSION "0.5.0"
+#define FW_VERSION "0.5.1"
 #endif
 
 Link piLink;
@@ -1186,6 +1190,7 @@ void Link::start(const String& host, uint16_t port) {
         hello["device"] = settings.deviceName;
         hello["fw"] = FW_VERSION;
         hello["token"] = settings.token;
+        hello["voice"] = settings.voiceOn;  // 要不要念出來
         send(hello);
         break;
       }
@@ -1357,7 +1362,7 @@ void handleRoot() {
   h += esc(settings.serverHost);
   h += F("' required>Port<input name='port' type='number' min='1' max='65535' value='");
   h += String(settings.serverPort);
-  h += F("'>喇叭音量（0–255，平常也可以按 Stick 側邊電源鍵切換）<input name='vol' type='number' min='0' max='255' value='");
+  h += F("'>喇叭音量（0–255，平常也可以長按 B → 音量 調整）<input name='vol' type='number' min='0' max='255' value='");
   h += String(settings.volume);
   h += F("'>Token（跟 Pi 的 bridge/config.yaml device.token 一樣；留空 = 不改）<input name='token' type='password'>"
          "裝置名稱<input name='device' maxlength='32' value='");
@@ -1599,6 +1604,7 @@ void onPiMessage(JsonDocument& doc) {
     if (id != waitingId || approvalPending) return;
     ui.showReplyLive(agentName, doc["text"] | "");  // 一邊產生一邊顯示
   } else if (type == "audio_reply_start") {
+    if (!settings.voiceOn) return;  // 不說話模式
     if ((id != waitingId && id != lastReplyId) || recorder.recording()) return;
     player.start(id, doc["rate"] | 16000);
   } else if (type == "audio_reply_end") {
@@ -1650,6 +1656,21 @@ int volumeLevelIndex() {
   return 0;
 }
 
+void setVoiceOn(bool on) {
+  if (settings.voiceOn == on) return;
+  settings.voiceOn = on;
+  settingsSave();
+  if (!on && player.active()) {
+    player.stop();
+    sendSimple("tts_stop");
+  }
+  JsonDocument doc;  // 讓 Pi 也知道，不說話就不用合成
+  doc["type"] = "voice_mode";
+  doc["enabled"] = on;
+  piLink.send(doc);
+  Serial.printf("[voice] %s\n", on ? "開" : "關");
+}
+
 void setVolume(uint8_t v) {
   settings.volume = v;
   settingsSave();
@@ -1678,7 +1699,8 @@ void showMenu(Menu which, int cursor = 0) {
     case Menu::Volume: {
       title = "音量";
       const char* names[] = {"1 小聲", "2", "3", "4", "5 最大"};
-      int cur = volumeLevelIndex();
+      int cur = settings.voiceOn ? volumeLevelIndex() : -1;
+      items.push_back(String(settings.voiceOn ? "  " : "● ") + "不說話");
       for (int i = 0; i < VOLUME_LEVEL_COUNT; i++) {
         items.push_back(String(i == cur ? "● " : "  ") + names[i]);
       }
@@ -1703,7 +1725,7 @@ void menuSelect() {
   switch (menu) {
     case Menu::Main:
       if (menuCursor == 0) showMenu(Menu::Wifi);
-      else if (menuCursor == 1) showMenu(Menu::Volume, volumeLevelIndex());
+      else if (menuCursor == 1) showMenu(Menu::Volume, settings.voiceOn ? volumeLevelIndex() + 1 : 0);
       else closeMenu();
       break;
     case Menu::Wifi:
@@ -1723,8 +1745,12 @@ void menuSelect() {
     case Menu::Volume:
       if (isLeave) {
         showMenu(Menu::Main, 1);
+      } else if (menuCursor == 0) {
+        setVoiceOn(false);  // 不說話：只顯示文字
+        showMenu(Menu::Volume, 0);
       } else {
-        setVolume(VOLUME_LEVELS[menuCursor]);
+        setVoiceOn(true);
+        setVolume(VOLUME_LEVELS[menuCursor - 1]);
         player.beep(settings.volume);   // 嗶一聲讓你聽聽看
         showMenu(Menu::Volume, menuCursor);  // 更新「●」標記
       }

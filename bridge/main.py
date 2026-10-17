@@ -87,6 +87,8 @@ class Device:
     # 目前這一輪（插話時取消）與正在念的語音
     turn_task: asyncio.Task | None = None
     speaker: Any = None
+    # Stick 選單裡的「不說話」：False = 只回文字，不合成語音
+    voice_on: bool = True
 
     @property
     def online(self) -> bool:
@@ -191,7 +193,7 @@ async def _respond(dev: Device, msg_id: Any, get_text: Callable[[], Awaitable[st
 
         # 語音模式：回覆一邊產生，一邊切句子合成語音念出來；文字也邊產生邊顯示
         speaker = None
-        if voice.enabled() and dev.online:
+        if voice.enabled() and dev.online and dev.voice_on:
             dev.stop_voice()
             speaker = voice.Speaker(
                 msg_id,
@@ -315,6 +317,11 @@ async def _on_text(dev: Device, msg: dict[str, Any]) -> None:
         dev.audio_id, dev.audio_buf = None, bytearray()
     elif mtype == "tts_stop":
         dev.stop_voice()
+    elif mtype == "voice_mode":
+        dev.voice_on = bool(msg.get("enabled", True))
+        if not dev.voice_on:
+            dev.stop_voice()
+        log.info("%s voice %s", dev.name, "on" if dev.voice_on else "off")
     elif mtype == "approval_reply":
         if dev.approval and not dev.approval.done():
             dev.approval.set_result("once" if msg.get("choice") == "once" else "deny")
@@ -363,6 +370,7 @@ async def device_ws(ws: WebSocket) -> None:
             except Exception:
                 pass
     dev.fw = str(hello.get("fw") or "")
+    dev.voice_on = bool(hello.get("voice", True))
     dev.connected_at = time.time()
     dev.audio_id, dev.audio_buf = None, bytearray()  # 斷在說話中途的那段丟掉
     log.info("device connected: %s fw=%s (補送 %d 則)", name, dev.fw, len(dev.outbox))

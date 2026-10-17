@@ -139,6 +139,7 @@ void onPiMessage(JsonDocument& doc) {
     if (id != waitingId || approvalPending) return;
     ui.showReplyLive(agentName, doc["text"] | "");  // 一邊產生一邊顯示
   } else if (type == "audio_reply_start") {
+    if (!settings.voiceOn) return;  // 不說話模式
     if ((id != waitingId && id != lastReplyId) || recorder.recording()) return;
     player.start(id, doc["rate"] | 16000);
   } else if (type == "audio_reply_end") {
@@ -190,6 +191,21 @@ int volumeLevelIndex() {
   return 0;
 }
 
+void setVoiceOn(bool on) {
+  if (settings.voiceOn == on) return;
+  settings.voiceOn = on;
+  settingsSave();
+  if (!on && player.active()) {
+    player.stop();
+    sendSimple("tts_stop");
+  }
+  JsonDocument doc;  // 讓 Pi 也知道，不說話就不用合成
+  doc["type"] = "voice_mode";
+  doc["enabled"] = on;
+  piLink.send(doc);
+  Serial.printf("[voice] %s\n", on ? "開" : "關");
+}
+
 void setVolume(uint8_t v) {
   settings.volume = v;
   settingsSave();
@@ -218,7 +234,8 @@ void showMenu(Menu which, int cursor = 0) {
     case Menu::Volume: {
       title = "音量";
       const char* names[] = {"1 小聲", "2", "3", "4", "5 最大"};
-      int cur = volumeLevelIndex();
+      int cur = settings.voiceOn ? volumeLevelIndex() : -1;
+      items.push_back(String(settings.voiceOn ? "  " : "● ") + "不說話");
       for (int i = 0; i < VOLUME_LEVEL_COUNT; i++) {
         items.push_back(String(i == cur ? "● " : "  ") + names[i]);
       }
@@ -243,7 +260,7 @@ void menuSelect() {
   switch (menu) {
     case Menu::Main:
       if (menuCursor == 0) showMenu(Menu::Wifi);
-      else if (menuCursor == 1) showMenu(Menu::Volume, volumeLevelIndex());
+      else if (menuCursor == 1) showMenu(Menu::Volume, settings.voiceOn ? volumeLevelIndex() + 1 : 0);
       else closeMenu();
       break;
     case Menu::Wifi:
@@ -263,8 +280,12 @@ void menuSelect() {
     case Menu::Volume:
       if (isLeave) {
         showMenu(Menu::Main, 1);
+      } else if (menuCursor == 0) {
+        setVoiceOn(false);  // 不說話：只顯示文字
+        showMenu(Menu::Volume, 0);
       } else {
-        setVolume(VOLUME_LEVELS[menuCursor]);
+        setVoiceOn(true);
+        setVolume(VOLUME_LEVELS[menuCursor - 1]);
         player.beep(settings.volume);   // 嗶一聲讓你聽聽看
         showMenu(Menu::Volume, menuCursor);  // 更新「●」標記
       }

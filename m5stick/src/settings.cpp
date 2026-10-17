@@ -27,6 +27,7 @@ void loadDefaults() {
   settings.serverHost = DEFAULT_SERVER_HOST;
   settings.serverPort = DEFAULT_SERVER_PORT;
   settings.volume = 160;
+  settings.voiceOn = true;
   settings.token = DEFAULT_TOKEN;
   static const DefaultNet defaults[] = DEFAULT_NETWORKS;
   for (const auto& n : defaults) {
@@ -86,6 +87,7 @@ void settingsLoad() {
   settings.serverHost = doc["host"] | DEFAULT_SERVER_HOST;
   settings.serverPort = doc["port"] | DEFAULT_SERVER_PORT;
   settings.volume = doc["vol"] | 160;
+  settings.voiceOn = doc["voice"] | true;
   settings.token = doc["token"] | DEFAULT_TOKEN;
   for (JsonObject n : doc["nets"].as<JsonArray>()) {
     settings.addNetwork(n["ssid"] | "", n["pass"] | "", n["host"] | "");
@@ -98,6 +100,7 @@ void settingsSave() {
   doc["host"] = settings.serverHost;
   doc["port"] = settings.serverPort;
   doc["vol"] = settings.volume;
+  doc["voice"] = settings.voiceOn;
   doc["token"] = settings.token;
   JsonArray nets = doc["nets"].to<JsonArray>();
   for (int i = 0; i < settings.networkCount; i++) {

@@ -6,7 +6,7 @@
 #include "settings.h"
 
 #ifndef FW_VERSION
-#define FW_VERSION "0.5.0"
+#define FW_VERSION "0.5.1"
 #endif
 
 Link piLink;
@@ -47,6 +47,7 @@ void Link::start(const String& host, uint16_t port) {
         hello["device"] = settings.deviceName;
         hello["fw"] = FW_VERSION;
         hello["token"] = settings.token;
+        hello["voice"] = settings.voiceOn;  // 要不要念出來
         send(hello);
         break;
       }

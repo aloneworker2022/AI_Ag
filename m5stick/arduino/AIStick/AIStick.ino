@@ -683,9 +683,11 @@ void Recorder::begin() {
   recFreeQ = xQueueCreate(REC_RING, sizeof(int));
   recDoneQ = xQueueCreate(REC_RING, sizeof(int));
   resetRecQueues();
-  M5.Speaker.end();  // StickS3 的喇叭和麥克風共用 codec：平常停在麥克風，播放時才切過去
+  // StickS3 的喇叭和麥克風共用 codec。省電：平常兩個都關著，說話時才開麥克風、念的時候才開喇叭
+  M5.Speaker.end();
   M5.Mic.setBufferReleaseCallback(nullptr, onRecReleased);
-  M5.Mic.begin();
+  Serial.printf("[boot] 麥克風：%s\n", M5.Mic.begin() ? "OK" : "失敗");
+  M5.Mic.end();
   // 跑在 core 1、優先權高於 loop()，畫面重畫時也能準時接上麥克風
   xTaskCreatePinnedToCore(recTask, "rec", 3072, nullptr, 3, nullptr, 1);
 }
@@ -695,6 +697,7 @@ void Recorder::start() {
   recDropped = 0;
   level_ = 0;
   startedAt_ = millis();
+  if (!M5.Mic.isEnabled()) M5.Mic.begin();
   recording_ = true;
   recActive = true;
 }
@@ -723,6 +726,7 @@ void Recorder::stop(const ChunkFn& onChunk) {
   while (M5.Mic.isRecording() && millis() - t < 300) delay(1);  // 等排著的段落錄完
   delay(3);  // 釋放回呼可能比 isRecording() 歸零晚一點點
   drain(onChunk);
+  M5.Mic.end();  // 不錄就關掉，省電
   Serial.printf("[rec] 錄了 %.1f 秒，掉了 %u 段\n", (millis() - startedAt_) / 1000.0f,
                 (unsigned)recDropped);
 }
@@ -909,9 +913,7 @@ void Player::stop() {
 }
 
 void Player::end() {
-  // 喇叭 → 麥克風
-  M5.Speaker.end();
-  M5.Mic.begin();
+  M5.Speaker.end();  // 念完就關喇叭（麥克風等下次說話才開）
   active_ = false;
   finished_ = false;
   id_ = -1;
@@ -933,7 +935,6 @@ void Player::beep(uint8_t volume) {
   M5.Speaker.tone(1000, 120);
   delay(160);
   M5.Speaker.end();
-  M5.Mic.begin();
 }
 
 // ===== wifi_manager.h =====
@@ -1149,7 +1150,7 @@ extern Link piLink;
 
 // ===== link.cpp =====
 #ifndef FW_VERSION
-#define FW_VERSION "0.5.1"
+#define FW_VERSION "0.5.2"
 #endif
 
 Link piLink;
@@ -1493,6 +1494,11 @@ constexpr uint32_t RECONNECT_GRACE_MS = 60000;  // 等回覆時斷線，最多�
 constexpr uint32_t MIN_SPEECH_MS = 400;        // 按太短當作誤觸
 constexpr uint32_t MAX_SPEECH_MS = 30000;      // 跟 Pi 的 stt.max_seconds 一致
 constexpr uint32_t MENU_HOLD_MS = 1000;  // B 按住這麼久打開選單
+// 省電：沒在用就先變暗、再關螢幕。說話、念回覆、等核准時不會暗
+constexpr uint32_t SCREEN_DIM_MS = 20000;
+constexpr uint32_t SCREEN_OFF_MS = 60000;
+constexpr uint8_t BRIGHTNESS_ON = 120;
+constexpr uint8_t BRIGHTNESS_DIM = 16;
 
 int waitingId = -1;  // 等 Pi 回覆中的訊息 id
 uint32_t waitingSince = 0;
@@ -1504,6 +1510,37 @@ bool approvalPending = false;
 uint32_t lastHomeClickAt = 0;
 String serialLine;
 bool ignoreNextBClick = false;  // 這次按 B 是用來回覆核准，放開時不要再觸發別的
+
+// 螢幕省電
+enum class Screen { On, Dim, Off };
+Screen screen = Screen::On;
+uint32_t lastActivity = 0;
+bool swallowB = false;  // 螢幕關著時按 B 只是叫醒，放開前都不算
+
+void wakeScreen() {
+  lastActivity = millis();
+  if (screen == Screen::On) return;
+  if (screen == Screen::Off) M5.Display.wakeup();
+  M5.Display.setBrightness(BRIGHTNESS_ON);
+  screen = Screen::On;
+}
+
+void updateScreen(bool busy) {
+  if (busy) {
+    wakeScreen();
+    return;
+  }
+  uint32_t idle = millis() - lastActivity;
+  if (screen == Screen::On && idle > SCREEN_DIM_MS) {
+    M5.Display.setBrightness(BRIGHTNESS_DIM);
+    screen = Screen::Dim;
+  }
+  if (screen != Screen::Off && idle > SCREEN_OFF_MS) {
+    M5.Display.setBrightness(0);
+    M5.Display.sleep();
+    screen = Screen::Off;
+  }
+}
 
 // 選單
 enum class Menu { None, Main, Wifi, Volume };
@@ -1577,6 +1614,7 @@ void onPiMessage(JsonDocument& doc) {
   int id = doc["id"] | -1;
 
   if (id >= 0 && id == waitingId) waitingSince = millis();  // 有進度就重新計時
+  if (type != "welcome" && type != "pong") wakeScreen();  // 有新東西就亮起來
 
   if (type == "welcome") {
     agentName = doc["agent"] | "Hermes";
@@ -1770,6 +1808,20 @@ void handleMenuButtons() {
 
 // ---- 按鍵 ----
 void handleButtons() {
+  bool aPressed = M5.BtnA.wasPressed(), bPressed = M5.BtnB.wasPressed();
+  if (aPressed || bPressed) {
+    if (screen == Screen::Off && bPressed) swallowB = true;  // A 照常可以直接按住說話
+    wakeScreen();
+  }
+  if (swallowB) {
+    if (M5.BtnB.wasReleased()) swallowB = false;
+    if (menu == Menu::None && !approvalPending) {  // B 不算，A 還是要能說話
+      if (aPressed) startSpeaking();
+      if (M5.BtnA.wasReleased()) stopSpeaking();
+    }
+    return;
+  }
+
   // 核准畫面：A 允許一次、B 拒絕
   if (approvalPending) {
     bool allow = M5.BtnA.wasPressed();
@@ -1845,6 +1897,7 @@ void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
   M5.BtnB.setHoldThresh(MENU_HOLD_MS);
+  setCpuFrequencyMhz(160);  // 預設 240 MHz，這個用途用不到；160 省電又夠快
   Serial.begin(115200);
 
   ui.begin();
@@ -1853,7 +1906,6 @@ void setup() {
 
   recorder.begin();
   player.begin();
-  Serial.printf("[boot] 麥克風：%s\n", M5.Mic.isEnabled() ? "OK" : "失敗");
 
   settingsLoad();
   if (settings.networkCount == 0) runSetupPortal();  // 第一次用：直接進設定
@@ -1861,6 +1913,7 @@ void setup() {
   piLink.onMessage(onPiMessage);
   piLink.onBinary([](const uint8_t* data, size_t len) { player.feed(data, len); });
   wifi.begin(onWifiStatus);
+  lastActivity = millis();
 }
 
 void loop() {
@@ -1902,6 +1955,7 @@ void loop() {
     sleepOn = !busy;
     WiFi.setSleep(sleepOn);
   }
+  updateScreen(recorder.recording() || player.active() || approvalPending);
 
   // 等回覆時斷線：先等它自動重連（Pi 會把這一輪跑完，重連後補送回覆），太久才放棄
   static uint32_t lostSince = 0;
@@ -1944,5 +1998,5 @@ void loop() {
 
   handleButtons();
   handleSerial();
-  if (!recorder.recording()) delay(5);
+  if (!recorder.recording()) delay(screen == Screen::Off ? 20 : 5);  // 螢幕關著時少醒幾次
 }

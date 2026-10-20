@@ -154,9 +154,7 @@ void Player::stop() {
 }
 
 void Player::end() {
-  // 喇叭 → 麥克風
-  M5.Speaker.end();
-  M5.Mic.begin();
+  M5.Speaker.end();  // 念完就關喇叭（麥克風等下次說話才開）
   active_ = false;
   finished_ = false;
   id_ = -1;
@@ -178,5 +176,4 @@ void Player::beep(uint8_t volume) {
   M5.Speaker.tone(1000, 120);
   delay(160);
   M5.Speaker.end();
-  M5.Mic.begin();
 }

@@ -59,9 +59,11 @@ void Recorder::begin() {
   recFreeQ = xQueueCreate(REC_RING, sizeof(int));
   recDoneQ = xQueueCreate(REC_RING, sizeof(int));
   resetRecQueues();
-  M5.Speaker.end();  // StickS3 的喇叭和麥克風共用 codec：平常停在麥克風，播放時才切過去
+  // StickS3 的喇叭和麥克風共用 codec。省電：平常兩個都關著，說話時才開麥克風、念的時候才開喇叭
+  M5.Speaker.end();
   M5.Mic.setBufferReleaseCallback(nullptr, onRecReleased);
-  M5.Mic.begin();
+  Serial.printf("[boot] 麥克風：%s\n", M5.Mic.begin() ? "OK" : "失敗");
+  M5.Mic.end();
   // 跑在 core 1、優先權高於 loop()，畫面重畫時也能準時接上麥克風
   xTaskCreatePinnedToCore(recTask, "rec", 3072, nullptr, 3, nullptr, 1);
 }
@@ -71,6 +73,7 @@ void Recorder::start() {
   recDropped = 0;
   level_ = 0;
   startedAt_ = millis();
+  if (!M5.Mic.isEnabled()) M5.Mic.begin();
   recording_ = true;
   recActive = true;
 }
@@ -99,6 +102,7 @@ void Recorder::stop(const ChunkFn& onChunk) {
   while (M5.Mic.isRecording() && millis() - t < 300) delay(1);  // 等排著的段落錄完
   delay(3);  // 釋放回呼可能比 isRecording() 歸零晚一點點
   drain(onChunk);
+  M5.Mic.end();  // 不錄就關掉，省電
   Serial.printf("[rec] 錄了 %.1f 秒，掉了 %u 段\n", (millis() - startedAt_) / 1000.0f,
                 (unsigned)recDropped);
 }
